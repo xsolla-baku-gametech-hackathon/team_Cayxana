@@ -1,0 +1,4 @@
+# Store text files with LF in the repo, whatever OS edits them.
+* text=auto eol=lf
+*.png binary
+*.docx binary
