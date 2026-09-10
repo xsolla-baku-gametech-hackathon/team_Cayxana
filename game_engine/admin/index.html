@@ -6,7 +6,7 @@
   <title>Admin view — server truth</title>
   <link rel="icon" href="data:,">
   <style>
-    :root { --bg: #0e1116; --panel: #161b22; --line: #30363d; --text: #c9d1d9; --dim: #8b949e; --trap: #ff4d5e; --bot: #ff4d5e; --human: #4ea8f2; }
+    :root { --bg: #0e1116; --panel: #161b22; --line: #30363d; --text: #c9d1d9; --dim: #8b949e; --trap: #ff4d5e; --chain: #ff9f1c; --bot: #ff4d5e; --human: #4ea8f2; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
     .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; padding: 10px; height: calc(100% - 20px); box-sizing: border-box; }
     @media (max-width: 620px) { .wrap { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; } }
@@ -40,6 +40,7 @@
         <div><span class="sw" style="background:#f2c14e;border-radius:50%"></span>coin (real)</div>
         <div><span class="sw" style="background:#b5713a"></span>chest (real)</div>
         <div><span class="sw" style="border:2px dashed var(--trap);border-radius:50%;box-sizing:border-box"></span>trap — invisible to every player</div>
+        <div><span class="sw" style="border:2px dashed var(--chain);border-radius:50%;box-sizing:border-box"></span>chain trap — spawned by a trap hit (max 6)</div>
         <div><span class="sw" style="border:2px solid var(--bot);border-radius:50%;box-sizing:border-box"></span>bot</div>
         <div><span class="sw" style="border:2px solid var(--human);border-radius:50%;box-sizing:border-box"></span>human</div>
       </div>
@@ -106,7 +107,8 @@
 
     function renderPanel() {
       const bots = snap.players.filter((p) => p.kind === 'bot').length;
-      $('status').textContent = `tick ${snap.tick} · ${snap.players.length - bots} human · ${bots} bot · ${snap.traps.length} active traps`;
+      const chained = snap.traps.filter((t) => t.chainDepth > 0).length;
+      $('status').textContent = `tick ${snap.tick} · ${snap.players.length - bots} human · ${bots} bot · ${snap.traps.length} active traps (${chained} chained)`;
       $('players').innerHTML = [...snap.players]
         .sort((a, b) => b.hits - a.hits)
         .map((p) => `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id === watchedId ? '◀ ' : ''}${p.id.slice(0, 6)}</td><td>${p.kind}</td><td>${p.hits}</td><td>${p.score.toFixed(2)}</td></tr>`)
@@ -149,7 +151,7 @@
           const owner = byId.get(t.playerId);
           if (owner && $('optOwners').checked) {
             ctx.setLineDash([3, 6]);
-            ctx.strokeStyle = 'rgba(255,77,94,0.4)';
+            ctx.strokeStyle = t.chainDepth > 0 ? 'rgba(255,159,28,0.4)' : 'rgba(255,77,94,0.4)';
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(owner.x, owner.y); ctx.lineTo(t.x, t.y); ctx.stroke();
           }
@@ -160,11 +162,12 @@
           if (t.type === 'coin') { circle(t.x, t.y, 6); ctx.fill(); } else ctx.fillRect(t.x - 9, t.y - 7, 18, 14);
           ctx.globalAlpha = 1;
           // …and the trigger radius, which only this view shows.
+          const rgb = t.chainDepth > 0 ? '255,159,28' : '255,77,94'; // orange = chain trap
           circle(t.x, t.y, C.TRAP_RADIUS);
-          ctx.fillStyle = 'rgba(255,77,94,0.18)';
+          ctx.fillStyle = `rgba(${rgb},0.18)`;
           ctx.fill();
           ctx.setLineDash([6, 4]);
-          ctx.strokeStyle = `rgba(255,77,94,${pulse})`;
+          ctx.strokeStyle = `rgba(${rgb},${pulse})`;
           ctx.lineWidth = 3;
           ctx.stroke();
           ctx.setLineDash([]);
