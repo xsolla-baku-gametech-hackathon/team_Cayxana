@@ -51,19 +51,70 @@ export function isWalkable(x, y, clearance = C.PLAYER_RADIUS) {
   return !hitsObstacle(x, y, clearance);
 }
 
+// ── Reachability ───────────────────────────────────────────────────────
+// Flood fill from HUMAN_SPAWN over an 8-unit grid, once at startup. A cell is
+// open if a player centred there would not overlap an obstacle. Anything the
+// fill never reaches (the vault) is unreachable: real loot never spawns there,
+// and unreachable_bait can use exactly that space.
+
+const REACH_CELL = 8;
+const REACH_COLS = Math.ceil(C.WORLD_W / REACH_CELL);
+const REACH_ROWS = Math.ceil(C.WORLD_H / REACH_CELL);
+const reachable = new Uint8Array(REACH_COLS * REACH_ROWS);
+
+(function floodFill() {
+  const open = (cx, cy) => isWalkable((cx + 0.5) * REACH_CELL, (cy + 0.5) * REACH_CELL, C.PLAYER_RADIUS);
+  const sx = Math.floor(C.HUMAN_SPAWN.x / REACH_CELL);
+  const sy = Math.floor(C.HUMAN_SPAWN.y / REACH_CELL);
+  if (!open(sx, sy)) throw new Error('HUMAN_SPAWN is inside an obstacle — fix OBSTACLES in constants.js');
+  const queue = [sx + sy * REACH_COLS];
+  reachable[queue[0]] = 1;
+  while (queue.length) {
+    const i = queue.pop();
+    const cx = i % REACH_COLS;
+    const cy = (i - cx) / REACH_COLS;
+    for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
+      if (nx < 0 || ny < 0 || nx >= REACH_COLS || ny >= REACH_ROWS) continue;
+      const j = nx + ny * REACH_COLS;
+      if (reachable[j] || !open(nx, ny)) continue;
+      reachable[j] = 1;
+      queue.push(j);
+    }
+  }
+})();
+
+/**
+ * True if a player walking from the spawn can get their centre to (x, y) or
+ * within one grid cell of it. The one-cell tolerance keeps wall-hugging spots
+ * (a few units closer to the wall than a player centre can go) reachable.
+ */
+export function isReachable(x, y) {
+  const cx = Math.floor(x / REACH_CELL);
+  const cy = Math.floor(y / REACH_CELL);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx >= 0 && ny >= 0 && nx < REACH_COLS && ny < REACH_ROWS && reachable[nx + ny * REACH_COLS]) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Uniform random walkable point.
  * @param {object} [opts]
  * @param {number} [opts.clearance]  radius that must be free of obstacles
  * @param {{x:number,y:number,minDist:number}[]} [opts.avoid]  points to keep away from
+ * @param {boolean} [opts.reachable=true]  also require that players can walk there
  * @param {number} [opts.tries]
  * @returns {{x:number,y:number}|null} null only if no point found (should not happen)
  */
-export function randomWalkablePoint({ clearance = C.PLAYER_RADIUS, avoid = [], tries = 1000 } = {}) {
+export function randomWalkablePoint({ clearance = C.PLAYER_RADIUS, avoid = [], reachable: mustReach = true, tries = 1000 } = {}) {
   for (let i = 0; i < tries; i++) {
     const x = clearance + Math.random() * (C.WORLD_W - 2 * clearance);
     const y = clearance + Math.random() * (C.WORLD_H - 2 * clearance);
     if (!isWalkable(x, y, clearance)) continue;
+    if (mustReach && !isReachable(x, y)) continue;
     if (avoid.some((a) => dist2(x, y, a.x, a.y) < a.minDist * a.minDist)) continue;
     return { x, y };
   }

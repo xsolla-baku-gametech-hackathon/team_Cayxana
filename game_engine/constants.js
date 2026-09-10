@@ -58,13 +58,41 @@ export const INPUT_KEEPALIVE_TICKS = 10; // client re-sends its input this often
 export const INPUT_TIMEOUT_TICKS = 30;   // no input for 1.5 s → server stops the player
 
 // ── Obstacles ───────────────────────────────────────────────────────────
-// Six fixed rectangles, identical on every run. {x, y} is the top-left corner.
-// None of them overlap HUMAN_SPAWN or enclose an area.
+// Fixed rectangles, identical on every run. {x, y} is the top-left corner.
+// L-shapes are two overlapping rectangles. Rules the layout keeps:
+//  - HUMAN_SPAWN stays clear;
+//  - every gap a player must pass through is at least 3× PLAYER_RADIUS wide;
+//  - exactly ONE sealed area exists: the vault (VAULT below). Nothing else is
+//    enclosed. server/world.js flood-fills reachability at startup and never
+//    spawns real loot in unreachable space.
 export const OBSTACLES = Object.freeze([
-  Object.freeze({ x: 350,  y: 120, w: 220, h: 60 }),
-  Object.freeze({ x: 700,  y: 300, w: 60,  h: 300 }),
-  Object.freeze({ x: 950,  y: 120, w: 300, h: 50 }),
-  Object.freeze({ x: 1100, y: 620, w: 250, h: 60 }),
-  Object.freeze({ x: 430,  y: 640, w: 180, h: 120 }),
-  Object.freeze({ x: 1350, y: 280, w: 70,  h: 220 }),
-]);
+  // top-left L
+  { x: 300,  y: 100, w: 220, h: 36 },
+  { x: 300,  y: 136, w: 36,  h: 150 },
+  // centre-left long wall
+  { x: 640,  y: 230, w: 36,  h: 300 },
+  // top-centre bar
+  { x: 820,  y: 110, w: 320, h: 36 },
+  // scattered blocks
+  { x: 470,  y: 420, w: 48,  h: 48 },
+  { x: 900,  y: 360, w: 48,  h: 48 },
+  { x: 1020, y: 470, w: 48,  h: 48 },
+  { x: 1460, y: 120, w: 60,  h: 60 },
+  // bottom-left L
+  { x: 300,  y: 660, w: 280, h: 36 },
+  { x: 544,  y: 540, w: 36,  h: 120 },
+  // right-side corridor (two parallel walls, 64-unit lane between them)
+  { x: 1180, y: 290, w: 260, h: 28 },
+  { x: 1180, y: 382, w: 260, h: 28 },
+  // bottom-right L
+  { x: 1150, y: 650, w: 230, h: 36 },
+  { x: 1344, y: 540, w: 36,  h: 146 },
+  // the vault: a sealed 68×68 room (four walls)
+  { x: 800,  y: 640, w: 100, h: 16 },
+  { x: 800,  y: 724, w: 100, h: 16 },
+  { x: 800,  y: 640, w: 16,  h: 100 },
+  { x: 884,  y: 640, w: 16,  h: 100 },
+].map(Object.freeze));
+
+/** Interior of the sealed vault — visible to everyone, reachable by no one. For unreachable_bait. */
+export const VAULT = Object.freeze({ x: 816, y: 656, w: 68, h: 68 });
