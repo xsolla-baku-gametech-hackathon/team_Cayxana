@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Telemetry (placeholder)</title>
+  <link rel="icon" href="data:,">
+  <!-- PLACEHOLDER — owned by the Dashboard workstream, replace freely.
+       Exists so the game side can verify /telemetry end to end. -->
+  <style>
+    body { margin: 16px; background: #0e1116; color: #c9d1d9; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    canvas { background: #161b22; width: 100%; max-width: 960px; border: 1px solid #30363d; display: block; }
+    table { border-collapse: collapse; margin-top: 12px; }
+    td, th { padding: 2px 12px 2px 0; text-align: left; }
+    .bot { color: #f25f7a; } .human { color: #4ea8f2; } .flag { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="status">connecting…</div>
+  <canvas id="traces" width="1600" height="900"></canvas>
+  <table><thead><tr><th>id</th><th>kind</th><th>score</th><th>flagged</th><th>events</th></tr></thead><tbody id="rows"></tbody></table>
+  <script type="module">
+    import * as C from '/constants.js';
+    const key = new URLSearchParams(location.search).get('key') ?? '';
+    const ctx = document.getElementById('traces').getContext('2d');
+    const rows = document.getElementById('rows');
+    const status = document.getElementById('status');
+
+    function connect() {
+      const ws = new WebSocket(`ws://${location.host}${C.PATHS.TELEMETRY}?key=${encodeURIComponent(key)}`);
+      ws.onmessage = (ev) => draw(JSON.parse(ev.data));
+      ws.onclose = () => { status.textContent = 'disconnected (wrong ?key= or server down) — retrying…'; setTimeout(connect, 1000); };
+    }
+
+    function draw(msg) {
+      status.textContent = `tick ${msg.tick} · ${msg.players.length} players · ${msg.categories.length} trap categories`;
+      ctx.clearRect(0, 0, C.WORLD_W, C.WORLD_H);
+      ctx.fillStyle = '#2d333b';
+      for (const o of C.OBSTACLES) ctx.fillRect(o.x, o.y, o.w, o.h);
+      for (const p of msg.players) {
+        ctx.strokeStyle = p.kind === 'bot' ? '#f25f7a' : '#4ea8f2';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        p.trace.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.stroke();
+      }
+      rows.innerHTML = msg.players.map((p) =>
+        `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id}</td><td>${p.kind}</td>` +
+        `<td>${p.score.toFixed(2)}</td><td>${p.flagged ? 'YES' : ''}</td><td>${p.events.length}</td></tr>`).join('');
+    }
+    connect();
+  </script>
+</body>
+</html>

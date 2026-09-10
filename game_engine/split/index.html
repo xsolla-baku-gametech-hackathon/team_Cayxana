@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Split view — player vs. server truth</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; height: 100%; background: #0e1116; color: #c9d1d9; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+    .grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; height: 100%; padding: 10px; box-sizing: border-box; }
+    section { display: flex; flex-direction: column; min-height: 0; }
+    header { padding: 0 2px 6px; display: flex; justify-content: space-between; gap: 12px; }
+    header b { color: #fff; font-weight: normal; }
+    header span { color: #8b949e; }
+    iframe { flex: 1; width: 100%; border: 1px solid #30363d; background: #0e1116; }
+    .player iframe:focus-within, .player iframe:focus { outline: 2px solid #4ea8f2; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <section class="player">
+      <header><b>Player view</b><span>what a normal user sees · click here, then WASD</span></header>
+      <iframe id="player" src="/" title="Player view"></iframe>
+    </section>
+    <section>
+      <header><b>Admin view</b><span>server truth · traps shown as dashed rings</span></header>
+      <iframe id="admin" title="Admin view"></iframe>
+    </section>
+  </div>
+  <script>
+    const key = new URLSearchParams(location.search).get('key') ?? '';
+    document.getElementById('admin').src = '/admin/?key=' + encodeURIComponent(key);
+    const player = document.getElementById('player');
+    player.addEventListener('load', () => player.contentWindow.focus()); // keys go to the game by default
+  </script>
+</body>
+</html>

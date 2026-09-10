@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin view — server truth</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { --bg: #0e1116; --panel: #161b22; --line: #30363d; --text: #c9d1d9; --dim: #8b949e; --trap: #ff4d5e; --bot: #ff4d5e; --human: #4ea8f2; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+    .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; padding: 10px; height: calc(100% - 20px); box-sizing: border-box; }
+    @media (max-width: 620px) { .wrap { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; } }
+    canvas { width: 100%; aspect-ratio: 1600 / 900; background: var(--panel); border: 1px solid var(--line); display: block; }
+    aside { overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+    h1 { font-size: 13px; margin: 0; color: #fff; }
+    h2 { font-size: 11px; margin: 0 0 4px; color: var(--dim); font-weight: normal; }
+    .legend div { display: flex; align-items: center; gap: 8px; }
+    .sw { width: 14px; height: 14px; display: inline-block; flex: none; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { padding: 1px 6px 1px 0; text-align: left; white-space: nowrap; }
+    th { color: var(--dim); font-weight: normal; }
+    .bot { color: var(--bot); } .human { color: var(--human); } .flag { font-weight: bold; text-decoration: underline; }
+    #log div { color: var(--dim); } #log b { color: var(--trap); font-weight: normal; }
+    label { margin-right: 10px; cursor: pointer; }
+    #status { color: var(--dim); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div>
+      <canvas id="view" width="1600" height="900"></canvas>
+    </div>
+    <aside>
+      <div>
+        <h1>Admin view · server truth</h1>
+        <div id="status">connecting…</div>
+      </div>
+      <div class="legend">
+        <h2>Legend</h2>
+        <div><span class="sw" style="background:#f2c14e;border-radius:50%"></span>coin (real)</div>
+        <div><span class="sw" style="background:#b5713a"></span>chest (real)</div>
+        <div><span class="sw" style="border:2px dashed var(--trap);border-radius:50%;box-sizing:border-box"></span>trap — invisible to every player</div>
+        <div><span class="sw" style="border:2px solid var(--bot);border-radius:50%;box-sizing:border-box"></span>bot</div>
+        <div><span class="sw" style="border:2px solid var(--human);border-radius:50%;box-sizing:border-box"></span>human</div>
+      </div>
+      <div>
+        <label><input type="checkbox" id="optTrails" checked> trails</label>
+        <label><input type="checkbox" id="optOwners" checked> trap owners</label>
+      </div>
+      <div>
+        <h2>Players</h2>
+        <table><thead><tr><th>id</th><th>kind</th><th>trap hits</th><th>score</th></tr></thead><tbody id="players"></tbody></table>
+      </div>
+      <div>
+        <h2>Trap events</h2>
+        <div id="log"></div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import * as C from '/constants.js';
+
+    const key = new URLSearchParams(location.search).get('key') ?? '';
+    const canvas = document.getElementById('view');
+    const ctx = canvas.getContext('2d');
+    const $ = (id) => document.getElementById(id);
+
+    let snap = null;
+    const trails = new Map();   // playerId → [[x, y], ...]
+    const TRAIL_LEN = 100;      // 10 s at 10 Hz
+    const flashes = [];         // {x, y, t0}
+    const seenEvents = new Set();
+
+    function connect() {
+      const ws = new WebSocket(`ws://${location.host}${C.PATHS.ADMIN}?key=${encodeURIComponent(key)}`);
+      ws.onmessage = (ev) => ingest(JSON.parse(ev.data));
+      ws.onclose = () => { $('status').textContent = 'disconnected (wrong ?key= or server down) — retrying…'; setTimeout(connect, 1000); };
+    }
+
+    function ingest(msg) {
+      if (msg.type !== 'admin') return;
+      snap = msg;
+      const live = new Set();
+      for (const p of msg.players) {
+        live.add(p.id);
+        const tr = trails.get(p.id) ?? [];
+        tr.push([p.x, p.y]);
+        if (tr.length > TRAIL_LEN) tr.shift();
+        trails.set(p.id, tr);
+      }
+      for (const id of trails.keys()) if (!live.has(id)) trails.delete(id);
+
+      for (const e of msg.events) {
+        const k = `${e.tick}:${e.playerId}:${e.x}:${e.y}`;
+        if (seenEvents.has(k)) continue;
+        seenEvents.add(k);
+        flashes.push({ x: e.x, y: e.y, t0: performance.now() });
+      }
+      renderPanel();
+    }
+
+    function renderPanel() {
+      const bots = snap.players.filter((p) => p.kind === 'bot').length;
+      $('status').textContent = `tick ${snap.tick} · ${snap.players.length - bots} human · ${bots} bot · ${snap.traps.length} active traps`;
+      $('players').innerHTML = [...snap.players]
+        .sort((a, b) => b.hits - a.hits)
+        .map((p) => `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id.slice(0, 6)}</td><td>${p.kind}</td><td>${p.hits}</td><td>${p.score.toFixed(2)}</td></tr>`)
+        .join('');
+      $('log').innerHTML = [...snap.events].reverse().slice(0, 14)
+        .map((e) => `<div>t${e.tick} <span class="${e.kind}">${e.kind} ${e.playerId.slice(0, 6)}</span> hit <b>${e.category}</b> at (${Math.round(e.x)}, ${Math.round(e.y)})</div>`)
+        .join('') || '<div>none yet</div>';
+    }
+
+    function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+
+    function render(now) {
+      ctx.clearRect(0, 0, C.WORLD_W, C.WORLD_H);
+      ctx.fillStyle = '#2d333b';
+      for (const o of C.OBSTACLES) ctx.fillRect(o.x, o.y, o.w, o.h);
+
+      if (snap) {
+        const byId = new Map(snap.players.map((p) => [p.id, p]));
+
+        if ($('optTrails').checked) {
+          for (const [id, tr] of trails) {
+            const p = byId.get(id);
+            if (!p || tr.length < 2) continue;
+            ctx.strokeStyle = p.kind === 'bot' ? 'rgba(255,77,94,0.35)' : 'rgba(78,168,242,0.45)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            tr.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+            ctx.stroke();
+          }
+        }
+
+        for (const it of snap.items) {
+          ctx.fillStyle = it.color;
+          if (it.type === 'coin') { circle(it.x, it.y, 6); ctx.fill(); }
+          else ctx.fillRect(it.x - 9, it.y - 7, 18, 14);
+        }
+
+        const pulse = 0.55 + 0.45 * Math.sin(now / 180);
+        for (const t of snap.traps) {
+          const owner = byId.get(t.playerId);
+          if (owner && $('optOwners').checked) {
+            ctx.setLineDash([3, 6]);
+            ctx.strokeStyle = 'rgba(255,77,94,0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(owner.x, owner.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+          }
+          // The loot as a bot "sees" it…
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.85;
+          ctx.fillStyle = t.type === 'coin' ? '#f2c14e' : '#b5713a';
+          if (t.type === 'coin') { circle(t.x, t.y, 6); ctx.fill(); } else ctx.fillRect(t.x - 9, t.y - 7, 18, 14);
+          ctx.globalAlpha = 1;
+          // …and the trigger radius, which only this view shows.
+          circle(t.x, t.y, C.TRAP_RADIUS);
+          ctx.fillStyle = 'rgba(255,77,94,0.18)';
+          ctx.fill();
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = `rgba(255,77,94,${pulse})`;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        for (const p of snap.players) {
+          circle(p.x, p.y, C.PLAYER_RADIUS);
+          ctx.fillStyle = p.color; ctx.fill();
+          ctx.lineWidth = p.flagged ? 4 : 2;
+          ctx.strokeStyle = p.kind === 'bot' ? '#ff4d5e' : '#4ea8f2';
+          ctx.stroke();
+          if (p.hits > 0) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '11px ui-monospace, monospace';
+            ctx.fillText(`${p.hits}`, p.x + 11, p.y - 9);
+          }
+        }
+      }
+
+      // Trap-fire flashes: an expanding ring for 0.9 s.
+      for (let i = flashes.length - 1; i >= 0; i--) {
+        const age = (now - flashes[i].t0) / 900;
+        if (age >= 1) { flashes.splice(i, 1); continue; }
+        ctx.strokeStyle = `rgba(255,77,94,${1 - age})`;
+        ctx.lineWidth = 3;
+        circle(flashes[i].x, flashes[i].y, C.TRAP_RADIUS + age * 40); ctx.stroke();
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    // Tighter panel when embedded in the split view.
+    if (window.self !== window.top) document.querySelector('.legend').style.display = 'none';
+
+    connect();
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>

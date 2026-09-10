@@ -1,49 +1,82 @@
-# Xsolla Baku GameTech Hackathon
+# Team Cayxana — Trap-Based Bot Detection
 
-Welcome! This repository is the starting template for teams participating in the **Xsolla Baku GameTech Hackathon** (September 9–11).
+Built for the **Xsolla Baku GameTech Hackathon** (Sept 9–11, 2026).
 
-## About the Hackathon
+Farming bots read game state straight off the network. Humans only see what the client draws.
+We exploit that gap: the server plants **trap loot** that looks completely ordinary on the wire
+but that the client never renders. A human has no reason to walk to an empty corner and wait there.
+A bot does. Every such visit becomes evidence, which a heuristic classifier scores from the
+player's movement trace. Suspicious accounts go to a review queue — **we never ban automatically.**
 
-Xsolla Baku is organizing a GameTech Hackathon to introduce Azerbaijan's developer community to the gametech industry and give developers a chance to build real prototype solutions.
+## Run it
 
-- **Sept 9** — Workshops: Xsolla team members introduce industry solutions and challenges across different gametech areas.
-- **Sept 10–11** — Build days: teams design and build a prototype solution, then present it to the jury.
+Requires Node 20+.
 
-## How to Use This Template
+```bash
+npm install
+npm start
+```
 
-1. Click **"Use this template"** at the top of this repo (not "Fork").
-2. Name your new repo `team-yourteamname` — use the same team name you registered with, so it's easy to match against the participant list.
-3. Set your new repo to **Public**.
-4. Add your teammates as collaborators (or ask the organizers to add them — you'll need to have submitted GitHub profile links during registration).
-5. Start building! Commit early and often — your commit history is part of how the project is evaluated.
-
-## Judging Categories
-
-| Category | What it means |
+| Open | What it is |
 |---|---|
-| **Best Project** | Overall strongest execution and prototype quality |
-| **Best Idea** | Most original/impactful concept |
-| **Best Code** | Code quality, structure, readability |
-| **Most GitHub Commits** | Team repo with the most commits as of the end of Sept 11 |
+| http://localhost:8080/ | the game (WASD / arrow keys) |
+| http://localhost:8080/split/?key=demo | **demo view** — player view next to admin view |
+| http://localhost:8080/admin/?key=demo | admin view: server truth, traps visible |
+| http://localhost:8080/dashboard/?key=demo | detection telemetry |
 
-## Ground Rules
+Launch a bot farm in a second terminal:
 
-- All work must happen in your team's public repo on this GitHub organization.
-- Development happens during the official build window (Sept 10–11). Work done before or after this window may not count toward judging.
-- Keep commits meaningful — commit history should reflect real progress, not artificially inflate commit counts. As a reference, consider following [Semantic Commit Messages](https://gist.github.com/joshbuchea/6f47e86d2510bce28f8e7f42ae84c716) conventions for clear, structured commit messages.
-- No confidential or proprietary Xsolla data may be used or shared in your project.
-- Be respectful and collaborative — see [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+```bash
+node bots/naive-bot.js --count 10
+```
 
-## Submission Checklist
+Run the protocol conformance check against a running server:
 
-- [ ] Repo is public and named `team-yourteamname`
-- [ ] README explains what your project does and how to run it
-- [ ] All teammates are added as collaborators
-- [ ] Final commit made before the Sept 11 deadline
-- [ ] Presentation prepared for the jury
+```bash
+npm run smoke
+```
 
-## Questions?
+Env vars: `PORT` (default 8080), `TELEMETRY_KEY` (default `demo`).
 
-The Google Developers Group (GDG) team will be coordinating and supporting teams throughout the hackathon — reach out to them in person during the event, or through whatever channel is shared with participants at kickoff.
+## How it works
 
-Good luck, and have fun building! 🎮
+1. **Authoritative server** (Node + `ws`, 20 Hz). The server decides everything and sends each client full state every tick.
+2. **Traps** (`server/traps.js`). Each player gets their own traps. The first category is *ghost loot*: a coin or chest whose sprite name is missing from the client's asset table, placed in odd spots such as map corners, map edges, and against walls. It fires when a player stays within 24 units of it for 2 consecutive ticks.
+3. **The asymmetry** (`client/sprites.js`). The client draws only sprite names in its asset table and silently skips everything else. A headless bot has no asset table, so it can't filter traps without reverse-engineering the client's art.
+4. **Detection** (`server/classifier.js`). Every trap hit is scored from the last 10 s of movement. A player is flagged after 3+ high-score hits from 2+ trap categories. Flagged players are reviewed by a human, not banned.
+
+## Repository layout
+
+```
+constants.js          shared constants — server, client, bots and dashboard import it
+server/
+  index.js            HTTP + WebSocket server, tick loop, telemetry & admin feeds
+  world.js            world state, movement, collision, pickups
+  traps.js            trap placement, lifecycle and firing
+  classifier.js       movement-trace scoring
+client/               the game page and its asset table (sprites.js)
+admin/                admin view (keyed)
+split/                side-by-side demo page
+dashboard/            detection telemetry UI
+bots/                 naive farming bot and farm launcher
+tools/smoke-test.js   wire-protocol conformance check
+```
+
+## Security properties
+
+- Entities on the wire carry only `id, type, x, y, sprite, color, value`. The server strips every other field, so trap metadata can't leak.
+- Entity order is shuffled every tick, and ids are random. Traps can't be spotted by their position in the list or their id format.
+- The admin and telemetry feeds require a key. Server code is never served over HTTP.
+- The server never acts on a score. It records the score and forwards it for review.
+
+## Team
+
+| Member | Role |
+|---|---|
+| _name_ | Game server & client |
+| _name_ | Traps |
+| _name_ | Detection |
+| _name_ | Bots |
+| _name_ | Dashboard & pitch |
+
+See [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
