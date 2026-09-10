@@ -2,8 +2,12 @@
 // Used by the browser client (?auto=bot | ?auto=human) and by bots/naive-bot.js,
 // so the bot you watch in the browser and the bot farm behave identically.
 //
-// The difference between the two brains IS the project in miniature:
-//   NaiveBrain      sees every entity in the packet (no asset table) → walks into traps.
+// The difference between the brains IS the project in miniature:
+//   NaiveBrain      one farm bot, two modes via FARM_FILTERS:
+//                     naive   — no asset table → walks into traps, and gets
+//                               deflected off real loot by a phantom player.
+//                     evasive — patched to check the asset table for both loot
+//                               AND players (same tell, sprite-null) → doesn't.
 //   HumanLikeBrain  sees only what the client draws (uses the asset table) → it can't.
 
 import * as C from '../constants.js';
@@ -17,6 +21,90 @@ const BLACKLIST_TICKS = 60;
 const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 const axis = (delta, deadzone) => (delta > deadzone ? 1 : delta < -deadzone ? -1 : 0);
 const randInt = (rng, lo, hi) => lo + Math.floor(rng() * (hi - lo + 1));
+
+// Real coordinates are realX/realY when present (position_offset trap category),
+// falling back to the drawn x/y. This is the bot's core tell and is never mode-dependent.
+const realPos = (e) => ({ x: e.realX ?? e.x, y: e.realY ?? e.y });
+
+/**
+ * The only mode-dependent piece. `naive` accepts every entity in the packet —
+ * no asset table, so a ghost_loot item (a plausible sprite name absent from
+ * SPRITES) looks exactly as real as a genuine coin. `evasive` patches around
+ * that one tell by checking the same asset table the browser's render loop
+ * uses: if the client wouldn't draw it, don't chase it.
+ */
+export const FARM_FILTERS = {
+  naive: () => true,
+  evasive: (e) => SPRITES.has(e.sprite),
+};
+
+// ── Local obstacle steering (a "bug algorithm", not pathfinding) ───────────
+// Movement is still "walk straight at the target" in spirit — no route
+// planning, no map of free space beyond what's checked one step ahead. This
+// only lets the bot slide along a wall's edge when the direct step is blocked,
+// same as any bot author could derive from the obstacle rectangles alone
+// (constants.js — public, not server-only). A spot with NO path around it
+// (unreachable_bait) still can't be reached this way: every one-step probe
+// around the bot fails there too, so it still stalls at the boundary — the
+// same detectable signature, just no longer misfiring on ordinary reachable
+// loot that happens to sit around a corner.
+
+// Index i = i*45°, matching Math.atan2's angle convention (0 = +x, 90° = +y).
+const OCTANTS = [
+  { dx: 1, dy: 0 }, { dx: 1, dy: 1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 1 },
+  { dx: -1, dy: 0 }, { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
+];
+const octantOf = (dx, dy) => Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) & 7;
+
+function circleHitsRect(x, y, r, rect) {
+  const nx = Math.max(rect.x, Math.min(x, rect.x + rect.w));
+  const ny = Math.max(rect.y, Math.min(y, rect.y + rect.h));
+  return (x - nx) ** 2 + (y - ny) ** 2 < r * r;
+}
+
+/** Mirrors server/world.js's own collision rule, reconstructed from public geometry. */
+function blockedAt(x, y) {
+  const r = C.PLAYER_RADIUS;
+  if (x < r || y < r || x > C.WORLD_W - r || y > C.WORLD_H - r) return true;
+  return C.OBSTACLES.some((o) => circleHitsRect(x, y, r, o));
+}
+
+function probe(you, dir) {
+  const len = Math.hypot(dir.dx, dir.dy) || 1;
+  return { x: you.x + (dir.dx / len) * C.PLAYER_SPEED, y: you.y + (dir.dy / len) * C.PLAYER_SPEED };
+}
+
+/**
+ * Direct step toward `target` if clear; otherwise slides along whichever side
+ * of the obstacle first opens up, remembering that side (via `mem`) so it
+ * doesn't flip-flop between left/right each tick. `mem.side` is 0 once the
+ * direct path is clear again. Returns STOP only when every direction one step
+ * out is blocked — genuinely boxed in, not merely "behind a wall".
+ */
+function steerAround(you, target, mem) {
+  const dx = target.x - you.x, dy = target.y - you.y;
+  if (Math.hypot(dx, dy) < 1) return STOP;
+  const direct = octantOf(dx, dy);
+  const directStep = OCTANTS[direct];
+  const p = probe(you, directStep);
+  if (!blockedAt(p.x, p.y)) {
+    mem.side = 0;
+    return directStep;
+  }
+  const sides = mem.side === 0 ? [1, -1] : [mem.side, -mem.side];
+  for (const side of sides) {
+    for (let turn = 1; turn <= 4; turn++) {
+      const idx = (direct + side * turn) & 7;
+      const step = OCTANTS[idx];
+      const q = probe(you, step);
+      if (!blockedAt(q.x, q.y)) {
+        mem.side = side;
+        return step;
+      }
+    }
+  }
+  return STOP; // every neighbouring direction blocked — really no way through from here
+}
 
 /** Shared stuck detection: if we're pushing but not moving, blacklist the target. */
 class StuckGuard {
@@ -49,27 +137,44 @@ class StuckGuard {
 }
 
 /**
- * The cheap farming bot: nearest loot, straight line, re-evaluated every tick.
- * Deliberately has NO asset table — it treats every coin/chest in the packet as real.
+ * The farming bot: nearest loot, straight line, re-evaluated every tick.
+ * `modeState` is a shared, externally-mutable `{ mode: 'naive' | 'evasive' }` —
+ * flipping it (e.g. from a control endpoint) changes every live instance's
+ * next decision with no reconnect, since it's read fresh each tick.
  */
 export class NaiveBrain {
-  constructor() {
+  constructor(modeState = { mode: 'naive' }) {
+    this.modeState = modeState;
     this.guard = new StuckGuard();
     this.input = STOP;
+    this.lastTargetId = null;
+    this.wallFollow = { side: 0 }; // 0 = no wall currently being followed, else +1/-1
   }
 
   decide({ you, entities, tick }) {
     this.guard.expire(tick);
+    const filter = FARM_FILTERS[this.modeState.mode] ?? FARM_FILTERS.naive;
+    // Player reaction: contest-avoidance. The same filter applies here as to loot —
+    // per OPEN DECISIONS #1, phantom_player is sprite-null exactly like invisible_entity,
+    // so evasive's asset-table check correctly ignores a phantom too, while naive still
+    // gets deflected by one (that deflection is category C's detectable event).
+    const believedPlayers = entities.filter((e) => e.type === 'player' && filter(e));
     let best = null;
+    let bestPos = null;
     let bestD = Infinity;
     for (const e of entities) {
-      if (!LOOT.has(e.type) || this.guard.blocked(e.id)) continue;
-      const d = d2(e, you);
-      if (d < bestD) { bestD = d; best = e; }
+      if (!LOOT.has(e.type) || this.guard.blocked(e.id) || !filter(e)) continue;
+      const pos = realPos(e);
+      const d = d2(pos, you);
+      if (believedPlayers.some((p) => d2(pos, p) < d)) continue; // someone else is closer to it
+      if (d < bestD) { bestD = d; best = e; bestPos = pos; }
+    }
+    if (best?.id !== this.lastTargetId) {
+      this.lastTargetId = best?.id ?? null;
+      this.wallFollow.side = 0; // new target: any remembered side belonged to the old one
     }
     this.guard.update(you, this.input.dx !== 0 || this.input.dy !== 0, best?.id, tick);
-    const dz = C.PLAYER_SPEED / 2;
-    this.input = best ? { dx: axis(best.x - you.x, dz), dy: axis(best.y - you.y, dz) } : STOP;
+    this.input = best ? steerAround(you, bestPos, this.wallFollow) : STOP;
     return this.input;
   }
 }
