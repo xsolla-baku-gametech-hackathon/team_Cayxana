@@ -27,6 +27,7 @@
 // shared with the browser's ?auto=bot / ?auto=human modes, so what you watch on
 // screen is exactly what the farm does.
 
+import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { WebSocket } from 'ws';
 import * as C from '../constants.js';
@@ -42,7 +43,7 @@ const HOST = arg('host', `localhost:${C.PORT}`);
 const COUNT = Math.max(1, Number(arg('count', 1)) || 1);
 const CONTROL_PORT = Number(arg('control-port', 8090));
 const TELEMETRY_KEY = arg('telemetry-key', process.env.TELEMETRY_KEY || 'demo');
-const TRACES_DIR = arg('traces', new URL('../traces', import.meta.url).pathname);
+const TRACES_DIR = arg('traces', fileURLToPath(new URL('../traces', import.meta.url)));
 
 const START_MODE = arg('mode', 'naive');
 const USE_HUMAN_BRAIN = START_MODE === 'human';

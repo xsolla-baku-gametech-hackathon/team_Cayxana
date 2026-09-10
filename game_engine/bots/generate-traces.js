@@ -18,6 +18,7 @@
 // Once bots/naive-bot.js is running against a live server, bots/trace-emitter.js
 // produces real (not synthetic) episodes in this exact same format.
 
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import * as C from '../constants.js';
 import { makeEpisode, writeEpisode } from './trace-schema.js';
@@ -28,7 +29,7 @@ function arg(name, fallback) {
 }
 
 const COUNT = Math.max(1, Number(arg('count', 20)) || 20);
-const OUT_DIR = arg('out', new URL('../traces', import.meta.url).pathname);
+const OUT_DIR = arg('out', fileURLToPath(new URL('../traces', import.meta.url)));
 const CATEGORIES = ['invisible_entity', 'position_offset', 'phantom_player', 'unreachable_bait'];
 
 const newId = () => randomBytes(6).toString('hex');
