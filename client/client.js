@@ -1,8 +1,18 @@
 // client/client.js — draws only what the server sends, and only what the asset table knows.
 // No game logic lives here. No trap logic lives here. Ever.
+//
+//   /             manual play (WASD / arrows)
+//   /?auto=bot    watch the naive bot autopilot  (connects as kind=bot)
+//   /?auto=human  watch the human-like autopilot (connects as kind=human)
 
 import * as C from '/constants.js';
 import { SPRITES, drawSprite } from '/client/sprites.js';
+
+const AUTO = ['bot', 'human'].includes(new URLSearchParams(location.search).get('auto'))
+  ? new URLSearchParams(location.search).get('auto')
+  : null;
+const autoplay = AUTO ? await import('/client/autoplay.js') : null;
+let brain = null;
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -16,7 +26,8 @@ let connected = false;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}${C.PATHS.GAME}?kind=human`);
+  ws = new WebSocket(`${proto}://${location.host}${C.PATHS.GAME}?kind=${AUTO === 'bot' ? 'bot' : 'human'}`);
+  if (autoplay) brain = AUTO === 'bot' ? new autoplay.NaiveBrain() : new autoplay.HumanLikeBrain();
 
   ws.onopen = () => {
     connected = true;
@@ -25,7 +36,13 @@ function connect() {
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
-    if (msg.type === 'state') latest = msg;
+    if (msg.type !== 'state') return;
+    latest = msg;
+    if (brain) {
+      desired = brain.decide(msg);
+      sendInput();
+    }
+    announceId(msg.you.id);
   };
   ws.onclose = () => {
     connected = false;
@@ -43,38 +60,51 @@ const KEYMAP = {
   KeyD: 'right', ArrowRight: 'right',
 };
 const held = new Set();
+let desired = { dx: 0, dy: 0 }; // from the keyboard, or from the autopilot
 let sent = { dx: 0, dy: 0 };
 
-function currentInput() {
+function keyboardInput() {
   return {
     dx: (held.has('right') ? 1 : 0) - (held.has('left') ? 1 : 0),
     dy: (held.has('down') ? 1 : 0) - (held.has('up') ? 1 : 0),
   };
 }
 
-/** Sends on key-state change; `force` sends regardless (keepalive). */
+/** Sends on change; `force` sends regardless (keepalive). */
 function sendInput(force = false) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  const inp = currentInput();
-  if (!force && inp.dx === sent.dx && inp.dy === sent.dy) return;
-  ws.send(JSON.stringify({ type: 'input', dx: inp.dx, dy: inp.dy }));
-  sent = inp;
+  if (!force && desired.dx === sent.dx && desired.dy === sent.dy) return;
+  ws.send(JSON.stringify({ type: 'input', dx: desired.dx, dy: desired.dy }));
+  sent = desired;
 }
 
-addEventListener('keydown', (e) => {
-  const dir = KEYMAP[e.code];
-  if (!dir) return;
-  e.preventDefault(); // arrows would otherwise scroll the page
-  held.add(dir);
-  sendInput();
-});
-addEventListener('keyup', (e) => {
-  const dir = KEYMAP[e.code];
-  if (!dir) return;
-  held.delete(dir);
-  sendInput();
-});
-addEventListener('blur', () => { held.clear(); sendInput(); }); // alt-tab must not leave you running
+if (!AUTO) {
+  addEventListener('keydown', (e) => {
+    const dir = KEYMAP[e.code];
+    if (!dir) return;
+    e.preventDefault(); // arrows would otherwise scroll the page
+    held.add(dir);
+    desired = keyboardInput();
+    sendInput();
+  });
+  addEventListener('keyup', (e) => {
+    const dir = KEYMAP[e.code];
+    if (!dir) return;
+    held.delete(dir);
+    desired = keyboardInput();
+    sendInput();
+  });
+  // alt-tab must not leave you running
+  addEventListener('blur', () => { held.clear(); desired = keyboardInput(); sendInput(); });
+}
+
+// When embedded in the split view, tell it which player this is so the admin view can highlight it.
+let announced = null;
+function announceId(id) {
+  if (id === announced || window.parent === window) return;
+  announced = id;
+  window.parent.postMessage({ type: 'watch', id }, location.origin);
+}
 
 setInterval(() => sendInput(true), C.INPUT_KEEPALIVE_TICKS * C.TICK_MS);
 
@@ -109,9 +139,11 @@ function render() {
     ctx.stroke();
   }
 
-  hud.textContent = connected
-    ? `tick ${latest?.tick ?? '—'}  ·  WASD / arrow keys to move`
-    : 'disconnected — reconnecting…';
+  const mode = AUTO === 'bot'
+    ? 'autoplay: naive bot — it chases things you cannot see'
+    : AUTO === 'human' ? 'autoplay: human-like — it only chases what is drawn'
+    : 'WASD / arrow keys to move';
+  hud.textContent = connected ? `tick ${latest?.tick ?? '—'}  ·  ${mode}` : 'disconnected — reconnecting…';
 
   requestAnimationFrame(render);
 }
