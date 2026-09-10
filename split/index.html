@@ -14,13 +14,23 @@
     header span { color: #8b949e; }
     iframe { flex: 1; width: 100%; border: 1px solid #30363d; background: #0e1116; }
     .player iframe:focus-within, .player iframe:focus { outline: 2px solid #4ea8f2; }
+    .modes { display: flex; gap: 6px; }
+    .modes button { font: inherit; background: #161b22; color: #c9d1d9; border: 1px solid #30363d; padding: 2px 8px; cursor: pointer; }
+    .modes button[aria-pressed="true"] { border-color: #4ea8f2; color: #fff; }
   </style>
 </head>
 <body>
   <div class="grid">
     <section class="player">
-      <header><b>Player view</b><span>what a normal user sees · click here, then WASD</span></header>
-      <iframe id="player" src="/" title="Player view"></iframe>
+      <header>
+        <b>Player view</b>
+        <span class="modes">
+          <button data-mode="">manual</button>
+          <button data-mode="bot">autoplay: bot</button>
+          <button data-mode="human">autoplay: human-like</button>
+        </span>
+      </header>
+      <iframe id="player" title="Player view"></iframe>
     </section>
     <section>
       <header><b>Admin view</b><span>server truth · traps shown as dashed rings</span></header>
@@ -28,10 +38,29 @@
     </section>
   </div>
   <script>
-    const key = new URLSearchParams(location.search).get('key') ?? '';
-    document.getElementById('admin').src = '/admin/?key=' + encodeURIComponent(key);
+    const params = new URLSearchParams(location.search);
+    const key = params.get('key') ?? '';
+    const admin = document.getElementById('admin');
     const player = document.getElementById('player');
+    admin.src = '/admin/?key=' + encodeURIComponent(key);
     player.addEventListener('load', () => player.contentWindow.focus()); // keys go to the game by default
+
+    // Mode buttons: reload the left view as manual / bot autopilot / human-like autopilot.
+    function setMode(mode) {
+      player.src = mode ? '/?auto=' + mode : '/';
+      for (const b of document.querySelectorAll('.modes button')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+      params.set('auto', mode);
+      if (!mode) params.delete('auto');
+      history.replaceState(null, '', '?' + params); // shareable link, survives refresh
+    }
+    for (const b of document.querySelectorAll('.modes button')) b.onclick = () => setMode(b.dataset.mode);
+    setMode(['bot', 'human'].includes(params.get('auto')) ? params.get('auto') : '');
+
+    // Relay "which player is on the left" to the admin view so it can highlight it.
+    addEventListener('message', (e) => {
+      if (e.origin !== location.origin || e.source !== player.contentWindow || e.data?.type !== 'watch') return;
+      admin.contentWindow.postMessage(e.data, location.origin);
+    });
   </script>
 </body>
 </html>

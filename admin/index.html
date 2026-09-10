@@ -67,6 +67,10 @@
     const $ = (id) => document.getElementById(id);
 
     let snap = null;
+    let watchedId = null;       // the player shown in the split view's left pane
+    addEventListener('message', (e) => {
+      if (e.origin === location.origin && e.data?.type === 'watch') watchedId = e.data.id;
+    });
     const trails = new Map();   // playerId → [[x, y], ...]
     const TRAIL_LEN = 100;      // 10 s at 10 Hz
     const flashes = [];         // {x, y, t0}
@@ -105,7 +109,7 @@
       $('status').textContent = `tick ${snap.tick} · ${snap.players.length - bots} human · ${bots} bot · ${snap.traps.length} active traps`;
       $('players').innerHTML = [...snap.players]
         .sort((a, b) => b.hits - a.hits)
-        .map((p) => `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id.slice(0, 6)}</td><td>${p.kind}</td><td>${p.hits}</td><td>${p.score.toFixed(2)}</td></tr>`)
+        .map((p) => `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id === watchedId ? '◀ ' : ''}${p.id.slice(0, 6)}</td><td>${p.kind}</td><td>${p.hits}</td><td>${p.score.toFixed(2)}</td></tr>`)
         .join('');
       $('log').innerHTML = [...snap.events].reverse().slice(0, 14)
         .map((e) => `<div>t${e.tick} <span class="${e.kind}">${e.kind} ${e.playerId.slice(0, 6)}</span> hit <b>${e.category}</b> at (${Math.round(e.x)}, ${Math.round(e.y)})</div>`)
@@ -178,6 +182,17 @@
             ctx.fillText(`${p.hits}`, p.x + 11, p.y - 9);
           }
         }
+      }
+
+      // The player on the split view's left pane: white ring + label.
+      const w = snap?.players.find((p) => p.id === watchedId);
+      if (w) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        circle(w.x, w.y, 18); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '13px ui-monospace, monospace';
+        ctx.fillText('left view', w.x + 22, w.y + 4);
       }
 
       // Trap-fire flashes: an expanding ring for 0.9 s.
