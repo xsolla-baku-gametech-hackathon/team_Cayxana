@@ -111,13 +111,15 @@ class Detector:
         if not observations:
             return []  # nobody is watching this player, so nothing to buffer
 
+        # One scan for the whole batch: the newest tick in it does not
+        # depend on which observation is being fed.
+        latest = max((s.get("tick", -1) for s in samples), default=-1)
         verdicts, still_open = [], []
         for observation in observations:
             observation.samples.extend(
                 s for s in samples
                 if observation.signal.tick <= s.get("tick", -1) <= observation.closes_at
             )
-            latest = max((s.get("tick", -1) for s in samples), default=-1)
             if latest >= observation.closes_at:
                 verdicts.append(self._close(player_id, observation))
             else:
