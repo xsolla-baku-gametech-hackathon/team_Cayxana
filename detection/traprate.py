@@ -24,7 +24,9 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-WINDOW_TICKS = 60 * 20
+from .clock import seconds, ticks
+
+WINDOW_TICKS = ticks(60)
 MAX_TRIPS = 15
 
 
@@ -44,7 +46,7 @@ class TrapRateMonitor:
         if len(trips) < self.max_trips or player_id in self.flagged:
             return None
         record = {"type": "trap_rate", "playerId": player_id, "tick": tick,
-                  "trips": len(trips), "windowSeconds": self.window_ticks / 20,
+                  "trips": len(trips), "windowSeconds": seconds(self.window_ticks),
                   "maxTrips": self.max_trips, "flagged": True}
         self.flagged[player_id] = record
         return record
