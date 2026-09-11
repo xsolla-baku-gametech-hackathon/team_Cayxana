@@ -31,7 +31,7 @@ from __future__ import annotations
 import statistics as st
 from dataclasses import dataclass, field
 
-TICKS_PER_HOUR = 72_000  # 20 ticks/sec
+from .clock import TICKS_PER_HOUR
 
 # A player must be seen this often before their numbers mean anything.
 MIN_TRIPS = 6
