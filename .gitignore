@@ -12,5 +12,5 @@ __pycache__/
 .pytest_cache/
 .env
 .env.*
-game_engine/traces/**/*.json
-game_engine/traces/*.json
+# game_engine/traces/**/*.json
+# game_engine/traces/*.json
