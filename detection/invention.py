@@ -9,15 +9,13 @@ to players.
 
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass, field
+
+from .jsonio import check_fields, check_name, decode
 
 MAP_BOUNDS = (0.0, 0.0, 1000.0, 1000.0)  # min_x, min_y, max_x, max_y
 ENTITY_FIELDS = ("id", "x", "y", "type", "sprite", "health", "owner", "spawnTick")
 REQUIRED_FIELDS = ("name", "description", "entity_field", "server_value", "client_value", "x", "y")
-NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,39}$")
-FENCE_RE = re.compile(r"^\s*```(?:json)?|```\s*$", re.MULTILINE)
 
 # Used whenever invention is unavailable or produces nothing usable.
 HARDCODED_POOL = ("invisible_entity", "position_offset", "phantom_player", "unreachable_bait")
@@ -44,26 +42,17 @@ def _clamp(value, low, high) -> float:
 
 def validate_category(raw, existing=()) -> tuple[TrapCategory | None, str]:
     """Parse one proposal. Returns (category, reason); category is None on reject."""
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(FENCE_RE.sub("", raw).strip())
-        except (json.JSONDecodeError, ValueError):
-            return None, "unparseable JSON"
-    if not isinstance(raw, dict):
-        return None, "not an object"
+    raw, reason = decode(raw)
+    if raw is None:
+        return None, reason
 
-    missing = [f for f in REQUIRED_FIELDS if f not in raw]
-    if missing:
-        return None, f"missing fields: {', '.join(missing)}"
-    unknown = [k for k in raw if k not in REQUIRED_FIELDS]
-    if unknown:
-        return None, f"unknown fields: {', '.join(sorted(unknown))}"
+    wrong_fields = check_fields(raw, REQUIRED_FIELDS)
+    if wrong_fields:
+        return None, wrong_fields
 
-    name = str(raw["name"]).strip().lower()
-    if not NAME_RE.match(name):
-        return None, "invalid name"
-    if name in set(existing):
-        return None, "duplicate of an existing category"
+    name, reason = check_name(raw["name"], existing, noun="category")
+    if name is None:
+        return None, reason
     if raw["entity_field"] not in ENTITY_FIELDS:
         return None, "unknown entity field"
     if str(raw["server_value"]) == str(raw["client_value"]):
