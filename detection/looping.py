@@ -38,18 +38,19 @@ from collections import deque
 from dataclasses import dataclass, field
 from math import atan2, degrees, hypot, pi
 
-TICK_HZ = 20
-WINDOW_TICKS = 60 * TICK_HZ
-EVALUATE_EVERY = 30 * TICK_HZ
+from .clock import TICK_HZ, ticks
+
+WINDOW_TICKS = ticks(60)
+EVALUATE_EVERY = ticks(30)
 MOVING_STEP = 0.5  # units per tick; below this the player is standing still
-MIN_MOVING_STEPS = 15 * TICK_HZ  # a window needs 15 s of real movement to judge
+MIN_MOVING_STEPS = ticks(15)  # a window needs 15 s of real movement to judge
 
 MAX_REVERSAL_RATE = 0.10
 MAX_STUCK_SHARE = 0.30
 MAX_REPEAT_SHARE = 0.10
 FLAG_WINDOWS = 2
 
-STUCK_SPAN_TICKS = 10 * TICK_HZ
+STUCK_SPAN_TICKS = ticks(10)
 STUCK_MIN_PATH = 400.0  # travelled at least this far in the 10 s...
 STUCK_MAX_BOX = 80.0  # ...without leaving a box this size
 REPEAT_CELL = 4.0
