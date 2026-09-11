@@ -59,6 +59,7 @@ from . import tuning
 from .anomaly import AnomalyMonitor
 from .llm import default_client
 from .hypothesis import ShadowDetectors, measure, propose, summarise, validate
+from .rules import canonical_category
 from .signatures import DETECTORS
 from .tuning import Observation
 
@@ -300,15 +301,10 @@ class AdaptiveLayer:
 
     def reload_labels(self) -> dict:
         """Re-read the corrections file and apply it to evidence already held."""
-        path = None if self.out_dir is None else self.out_dir / LABELS_FILE
-        overrides = {}
-        if path is not None and path.is_file():
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                overrides = {str(player): kind for player, kind in raw.items()
-                             if kind in ("human", "bot")}
-            except (ValueError, OSError, AttributeError):
-                self._say(f"[ai] {LABELS_FILE} unreadable; keeping declared labels")
+        overrides = {} if self.out_dir is None else load_label_corrections(
+            self.out_dir,
+            on_error=lambda: self._say(
+                f"[ai] {LABELS_FILE} unreadable; keeping declared labels"))
         if overrides == self._overrides:
             return overrides
         previous, self._overrides = self._overrides, overrides
@@ -547,17 +543,25 @@ def _describe(changes: dict) -> str:
 
 # -- offline use over a finished session ------------------------------------
 
-def load_label_corrections(directory: Path) -> dict:
-    """``{playerId: "human"|"bot"}`` from labels.json, or empty."""
+def load_label_corrections(directory: Path, on_error=None) -> dict:
+    """``{playerId: "human"|"bot"}`` from labels.json, or empty.
+
+    The file is written by the game while people are playing, so a read can
+    land on a half-written one. That is not an error worth stopping for:
+    the corrections in force simply do not change this round. ``on_error``
+    lets the live layer say so in its log; the offline path stays quiet.
+    """
     path = Path(directory) / LABELS_FILE
     if not path.is_file():
         return {}
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
+        return {str(player): kind for player, kind in raw.items()
+                if kind in ("human", "bot")}
+    except (ValueError, OSError, AttributeError):
+        if on_error is not None:
+            on_error()
         return {}
-    return {str(player): kind for player, kind in raw.items()
-            if kind in ("human", "bot")}
 
 
 def observations_from_trace(path: Path, observation_ticks: int = 200) -> list[Observation]:
@@ -593,10 +597,9 @@ def observations_from_trace(path: Path, observation_ticks: int = 200) -> list[Ob
                 trace = [s for s in movement.get(player, ())
                          if start <= s["tick"] <= start + observation_ticks]
                 if len(trace) >= 2:
-                    category = {"ghost_loot": "invisible_entity"}.get(category, category)
                     trap = None if x is None else {"tick": start, "x": x, "y": y}
                     observations.append(Observation.from_trace(
-                        trace, category=category,
+                        trace, category=canonical_category(category),
                         label=corrections.get(player) or labels.get(player),
                         player_id=player, trap_event=trap))
             pending = [p for p in pending if p not in done]
