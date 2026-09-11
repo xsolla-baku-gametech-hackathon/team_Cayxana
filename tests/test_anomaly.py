@@ -11,7 +11,7 @@ import unittest
 from detection import Detector, TrapSignal
 from detection.anomaly import AnomalyMonitor
 from detection.bandit import DEFAULT_CATEGORIES
-from tests.fixtures import BOTS, HUMANS, TICKS, TRAP
+from tests.fixtures import BOTS, HUMANS, TRAP
 
 HOUR = 72_000
 HUMAN_GAP = (3000, 9000)  # a person trips one every few minutes
