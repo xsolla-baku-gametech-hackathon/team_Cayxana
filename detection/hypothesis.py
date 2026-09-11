@@ -21,18 +21,15 @@ path, and if the model is unreachable the system carries on unchanged.
 
 from __future__ import annotations
 
-import json
-import re
 import statistics as st
 from dataclasses import dataclass
 
 from .features import _points, extract_features
+from .jsonio import NAME_RE, check_fields, check_name, decode
 from .llm import HUMAN_FACTORS
 from .signatures import (heading_change_variance, speed_cv, speed_periodicity,
                          step_mode_share, straight_run_share)
 
-FENCE_RE = re.compile(r"^\s*```(?:json)?|```\s*$", re.MULTILINE)
-NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,39}$")
 REQUIRED_FIELDS = ("name", "metric", "direction", "threshold", "rationale", "excuse")
 DIRECTIONS = ("above", "below")
 
@@ -69,7 +66,8 @@ def schema(summary: dict | None = None) -> dict:
     later by the gate.
     """
     fields = {
-        "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,39}$"},
+        # The same pattern ``check_name`` enforces after the answer arrives.
+        "name": {"type": "string", "pattern": NAME_RE.pattern},
         "metric": {"type": "string", "enum": sorted(METRICS)},
         "direction": {"type": "string", "enum": list(DIRECTIONS)},
         "threshold": {"type": "number"},
@@ -248,26 +246,17 @@ Reply with JSON only, no prose:
 
 def validate(raw, existing=()) -> tuple[Proposal | None, str]:
     """Schema and sanity only. Behaviour is checked separately, by replay."""
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(FENCE_RE.sub("", raw).strip())
-        except (json.JSONDecodeError, ValueError):
-            return None, "unparseable JSON"
-    if not isinstance(raw, dict):
-        return None, "not an object"
+    raw, reason = decode(raw)
+    if raw is None:
+        return None, reason
 
-    missing = [f for f in REQUIRED_FIELDS if f not in raw]
-    if missing:
-        return None, f"missing fields: {', '.join(missing)}"
-    unknown = [k for k in raw if k not in REQUIRED_FIELDS]
-    if unknown:
-        return None, f"unknown fields: {', '.join(sorted(unknown))}"
+    wrong_fields = check_fields(raw, REQUIRED_FIELDS)
+    if wrong_fields:
+        return None, wrong_fields
 
-    name = str(raw["name"]).strip().lower()
-    if not NAME_RE.match(name):
-        return None, "invalid name"
-    if name in set(existing):
-        return None, "duplicate of an existing detector"
+    name, reason = check_name(raw["name"], existing, noun="detector")
+    if name is None:
+        return None, reason
     if raw["metric"] not in METRICS:
         return None, f"unknown metric: {raw['metric']}"
     if raw["direction"] not in DIRECTIONS:
