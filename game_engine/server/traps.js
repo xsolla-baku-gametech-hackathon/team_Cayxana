@@ -21,7 +21,7 @@ import * as C from '../constants.js';
 import { newEntityId, isWalkable, isReachable, spriteNamesOfKind, ITEM_STYLE } from './world.js';
 
 const CATEGORY = 'ghost_loot';
-const TRAPS_PER_PLAYER = 10;
+const TRAPS_PER_PLAYER = 3;
 const TTL_MIN_TICKS = 80;        // 4 s   (plan said 40–120; longer so the fast bot can reach them)
 const TTL_MAX_TICKS = 200;       // 10 s
 const RESPAWN_GAP_MEAN_TICKS = 40;
