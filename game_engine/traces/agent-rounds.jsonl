@@ -15,3 +15,5 @@
 {"type":"agent_round","at":"2026-09-11T08:57:26.768Z","replay":false,"source":"claude:claude-sonnet-4-6","skipped":"model unavailable"}
 {"type":"agent_round","at":"2026-09-11T09:03:21.767Z","replay":false,"source":"claude:claude-sonnet-4-6","skipped":"model unavailable"}
 {"type":"agent_round","at":"2026-09-11T09:08:51.768Z","replay":false,"source":"claude:claude-sonnet-4-6","skipped":"model unavailable"}
+{"type":"agent_round","at":"2026-09-11T10:34:17.557Z","replay":false,"source":"local:qwen/qwen3-vl-8b","skipped":"model unavailable"}
+{"type":"agent_round","at":"2026-09-11T10:36:22.557Z","replay":false,"source":"local:qwen/qwen3-vl-8b","skipped":"model unavailable"}
