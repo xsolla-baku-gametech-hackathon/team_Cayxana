@@ -10,11 +10,20 @@
     body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
     canvas { background: #161b22; max-width: 98vw; max-height: calc(100vh - 40px); aspect-ratio: 1600 / 900; image-rendering: pixelated; border: 1px solid #30363d; }
     #hud { opacity: 0.75; }
+    #hud.collect { opacity: 1; font-size: 16px; }
+    #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(14, 17, 22, 0.92); padding: 16px; }
+    #overlay[hidden] { display: none; }
+    #overlay .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px; max-width: 460px; width: 100%; }
+    #overlay h1 { font-size: 20px; margin: 0 0 12px; color: #fff; }
+    #overlay p { margin: 0 0 10px; }
+    #overlay input { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; font-size: 15px; background: #0e1116; color: #fff; border: 1px solid #30363d; border-radius: 6px; margin: 6px 0 14px; }
+    #overlay button { padding: 10px 18px; font: inherit; font-size: 15px; background: #2f81f7; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
   </style>
 </head>
 <body>
   <canvas id="game" width="1600" height="900"></canvas>
   <div id="hud">connecting…</div>
+  <div id="overlay" hidden></div>
   <script type="module" src="/client/client.js"></script>
 </body>
 </html>

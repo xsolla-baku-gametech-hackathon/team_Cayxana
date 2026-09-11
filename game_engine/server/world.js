@@ -171,6 +171,7 @@ export class World {
       color: pick(PLAYER_COLORS),
       input: { dx: 0, dy: 0 },
       lastInputTick: this.tick,
+      score: 0,
       trace: new RingBuffer(C.TRACE_LEN),
       /** @type {{tick:number, trapEvent:object, score:number, features:object}[]} */
       results: [],
@@ -236,6 +237,7 @@ export class World {
     for (const p of this.players.values()) {
       for (const [id, item] of this.items) {
         if (dist2(p.x, p.y, item.x, item.y) <= r2) {
+          p.score += item.value;
           this.items.delete(id);
           this.respawnQueue.push({ type: item.type, atTick: this.tick + C.RESPAWN_DELAY_TICKS });
         }

@@ -1,0 +1,747 @@
+[
+  {
+    "id": "r_fast_reaction",
+    "when": [
+      {
+        "feat": "reaction_delay",
+        "op": "<=",
+        "v": 25
+      }
+    ],
+    "weight": 0.45,
+    "rationale": "standing on the loot within ~1.2 s of it existing; a person cannot get there that fast unless they were already walking at something they could not see",
+    "author": "human",
+    "status": "active",
+    "createdAt": "2026-09-10T00:00:00.000Z",
+    "backtest": null,
+    "approvedBy": "rules v1"
+  },
+  {
+    "id": "r_instant_pickup",
+    "when": [
+      {
+        "feat": "reaction_delay",
+        "op": "<=",
+        "v": 12
+      },
+      {
+        "feat": "dwell_ticks",
+        "op": "<=",
+        "v": 3
+      }
+    ],
+    "weight": 0.35,
+    "rationale": "arrived within half a second and moved straight on without looking - a collection loop consuming an item, not a person noticing one",
+    "author": "human",
+    "status": "active",
+    "createdAt": "2026-09-10T00:00:00.000Z",
+    "backtest": null,
+    "approvedBy": "rules v1"
+  },
+  {
+    "id": "r_straight_line",
+    "when": [
+      {
+        "feat": "path_straightness",
+        "op": ">=",
+        "v": 0.92
+      }
+    ],
+    "weight": 0.45,
+    "rationale": "SHADOW, and this is why: measured on this map it fires on 1% of bot episodes and 6% of human ones. The bot generation that walks around obstacles no longer walks straight lines, so the classic straight-line tell now describes a person crossing a corridor better than it describes a bot. Kept visible rather than deleted - it is the clearest evidence we have that a hand-written rule needs a backtest as much as an agent-written one does.",
+    "author": "human",
+    "status": "shadow",
+    "createdAt": "2026-09-10T00:00:00.000Z",
+    "backtest": null,
+    "approvedBy": null
+  },
+  {
+    "id": "r_precise_approach",
+    "when": [
+      {
+        "feat": "approach_error",
+        "op": "<=",
+        "v": 6
+      },
+      {
+        "feat": "dwell_ticks",
+        "op": ">=",
+        "v": 2
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "SHADOW: 13% of human episodes trip it, well over the 10% line, for only 6% of bot ones. Approach error does not separate the two cohorts on this map.",
+    "author": "human",
+    "status": "shadow",
+    "createdAt": "2026-09-10T00:00:00.000Z",
+    "backtest": null,
+    "approvedBy": null
+  },
+  {
+    "id": "r_const_speed",
+    "when": [
+      {
+        "feat": "speed_cv",
+        "op": "<",
+        "v": 0.2
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects maintain near-constant velocity while humans vary speed significantly.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-10T19:59:33.103Z",
+    "backtest": {
+      "botCaught": 2862,
+      "botTotal": 3155,
+      "humanFlagged": 6,
+      "humanTotal": 66
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": null
+  },
+  {
+    "id": "r_high_turns",
+    "when": [
+      {
+        "feat": "turn_count",
+        "op": ">",
+        "v": 25
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects make excessive sharp turns compared to the human baseline.",
+    "author": "agent",
+    "status": "active",
+    "createdAt": "2026-09-10T19:59:33.103Z",
+    "backtest": {
+      "botCaught": 2773,
+      "botTotal": 3155,
+      "humanFlagged": 0,
+      "humanTotal": 66
+    },
+    "approvedBy": "ferid",
+    "risky": false,
+    "alarm": null,
+    "decidedAt": "2026-09-10T19:59:47.093Z"
+  },
+  {
+    "id": "r_zero_pauses",
+    "when": [
+      {
+        "feat": "pause_count",
+        "op": "<",
+        "v": 1
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects rarely pause, whereas humans stop frequently during the run-in.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-10T19:59:33.103Z",
+    "backtest": {
+      "botCaught": 2852,
+      "botTotal": 3155,
+      "humanFlagged": 5,
+      "humanTotal": 66
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": null
+  },
+  {
+    "id": "r_pause_frequency",
+    "when": [
+      {
+        "feat": "pause_count",
+        "op": ">",
+        "v": 2
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects have much higher pause counts than humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:22:14.169Z",
+    "backtest": {
+      "botCaught": 24,
+      "botTotal": 2886,
+      "humanFlagged": 0,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 5,
+      "meanScore": 0.38
+    }
+  },
+  {
+    "id": "r_pause_duration",
+    "when": [
+      {
+        "feat": "pause_mean_ticks",
+        "op": ">",
+        "v": 50
+      }
+    ],
+    "weight": 0.4,
+    "rationale": "Suspects have much longer pauses than humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:22:14.169Z",
+    "backtest": {
+      "botCaught": 28,
+      "botTotal": 2886,
+      "humanFlagged": 0,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 5,
+      "meanScore": 0.38
+    }
+  },
+  {
+    "id": "r_straightness",
+    "when": [
+      {
+        "feat": "path_straightness",
+        "op": "<",
+        "v": 0.6
+      }
+    ],
+    "weight": 0.25,
+    "rationale": "Suspects have much lower straightness than humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:22:14.169Z",
+    "backtest": {
+      "botCaught": 2016,
+      "botTotal": 2886,
+      "humanFlagged": 18,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 5,
+      "meanScore": 0.38
+    }
+  },
+  {
+    "id": "r_low_straightness",
+    "when": [
+      {
+        "feat": "path_straightness",
+        "op": "<",
+        "v": 0.7
+      }
+    ],
+    "weight": 0.4,
+    "rationale": "Suspects have much lower straightness, indicating less natural movement.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:24:07.915Z",
+    "backtest": {
+      "botCaught": 3462,
+      "botTotal": 4038,
+      "humanFlagged": 25,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 10,
+      "meanScore": 0.21
+    }
+  },
+  {
+    "id": "r_high_pause_stddev",
+    "when": [
+      {
+        "feat": "pause_stddev_ticks",
+        "op": ">",
+        "v": 0.05
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects show higher pause variability, unlike human-timed pauses.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:24:07.915Z",
+    "backtest": {
+      "botCaught": 66,
+      "botTotal": 4038,
+      "humanFlagged": 1,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 10,
+      "meanScore": 0.21
+    }
+  },
+  {
+    "id": "r_low_speed_cv",
+    "when": [
+      {
+        "feat": "speed_cv",
+        "op": "<",
+        "v": 0.1
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects exhibit near-zero speed variation, unlike human movement.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:24:07.915Z",
+    "backtest": {
+      "botCaught": 3670,
+      "botTotal": 4038,
+      "humanFlagged": 38,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 10,
+      "meanScore": 0.21
+    }
+  },
+  {
+    "id": "r_low_approach_error",
+    "when": [
+      {
+        "feat": "approach_error",
+        "op": "<",
+        "v": 30
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects approach traps with machine-like precision, low deviation.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:26:13.419Z",
+    "backtest": {
+      "botCaught": 3057,
+      "botTotal": 4762,
+      "humanFlagged": 62,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 23,
+      "meanScore": 0.13
+    }
+  },
+  {
+    "id": "r_pause_stddev_low",
+    "when": [
+      {
+        "feat": "pause_stddev_ticks",
+        "op": "<",
+        "v": 0.1
+      }
+    ],
+    "weight": 0.25,
+    "rationale": "Bots show near-zero pause variability; humans vary more.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:28:18.739Z",
+    "backtest": {
+      "botCaught": 5150,
+      "botTotal": 5227,
+      "humanFlagged": 187,
+      "humanTotal": 188
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 11,
+      "meanScore": 0.04
+    }
+  },
+  {
+    "id": "r_revisit_ratio_low",
+    "when": [
+      {
+        "feat": "revisit_ratio",
+        "op": "<",
+        "v": 0.25
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Bots circle the same ground; humans cover more unique cells.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:28:18.739Z",
+    "backtest": {
+      "botCaught": 5201,
+      "botTotal": 5227,
+      "humanFlagged": 169,
+      "humanTotal": 188
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 11,
+      "meanScore": 0.04
+    }
+  },
+  {
+    "id": "r_approach_error_low",
+    "when": [
+      {
+        "feat": "approach_error",
+        "op": "<",
+        "v": 10
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Bots aim perfectly; humans deviate more.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:28:18.739Z",
+    "backtest": {
+      "botCaught": 739,
+      "botTotal": 5227,
+      "humanFlagged": 16,
+      "humanTotal": 188
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 11,
+      "meanScore": 0.04
+    }
+  },
+  {
+    "id": "r_low_approach_error_867",
+    "when": [
+      {
+        "feat": "approach_error",
+        "op": "<",
+        "v": 35
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects approach traps with much lower error, indicating machine-like precision.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:30:18.596Z",
+    "backtest": {
+      "botCaught": 4713,
+      "botTotal": 6301,
+      "humanFlagged": 70,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 9,
+      "meanScore": 0
+    }
+  },
+  {
+    "id": "r_low_straightness_405",
+    "when": [
+      {
+        "feat": "path_straightness",
+        "op": "<",
+        "v": 0.75
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects have significantly lower straightness than humans, indicating non-human movement patterns.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:32:23.707Z",
+    "backtest": {
+      "botCaught": 6104,
+      "botTotal": 6709,
+      "humanFlagged": 32,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 9,
+      "meanScore": 0
+    }
+  },
+  {
+    "id": "r_low_revisit_ratio",
+    "when": [
+      {
+        "feat": "revisit_ratio",
+        "op": "<",
+        "v": 0.2
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects revisit fewer unique cells, suggesting less natural exploration compared to humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:32:23.707Z",
+    "backtest": {
+      "botCaught": 4512,
+      "botTotal": 6709,
+      "humanFlagged": 4,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 9,
+      "meanScore": 0
+    }
+  },
+  {
+    "id": "r_low_pause_stddev",
+    "when": [
+      {
+        "feat": "pause_stddev_ticks",
+        "op": "<",
+        "v": 0.2
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects show near-zero pause variability, unlike humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:36:49.259Z",
+    "backtest": {
+      "botCaught": 8650,
+      "botTotal": 8737,
+      "humanFlagged": 100,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 4,
+      "meanScore": 0.31
+    }
+  },
+  {
+    "id": "r_high_approach_error",
+    "when": [
+      {
+        "feat": "approach_error",
+        "op": ">",
+        "v": 20
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects have higher approach errors, indicating inhuman precision.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:36:49.259Z",
+    "backtest": {
+      "botCaught": 5075,
+      "botTotal": 8737,
+      "humanFlagged": 74,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 4,
+      "meanScore": 0.31
+    }
+  },
+  {
+    "id": "r_zero_speed_cv",
+    "when": [
+      {
+        "feat": "speed_cv",
+        "op": ">",
+        "v": 0.05
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects show zero speed variation, unlike humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:36:49.259Z",
+    "backtest": {
+      "botCaught": 898,
+      "botTotal": 8737,
+      "humanFlagged": 76,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 4,
+      "meanScore": 0.31
+    }
+  },
+  {
+    "id": "r_high_pause_stddev_152",
+    "when": [
+      {
+        "feat": "pause_stddev_ticks",
+        "op": ">",
+        "v": 0.5
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects show much higher pause variability, suggesting non-human timing behavior.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:56:38.096Z",
+    "backtest": {
+      "botCaught": 208,
+      "botTotal": 17256,
+      "humanFlagged": 1,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 15,
+      "meanScore": 0.27
+    }
+  },
+  {
+    "id": "r_low_approach_error_996",
+    "when": [
+      {
+        "feat": "approach_error",
+        "op": "<",
+        "v": 20
+      }
+    ],
+    "weight": 0.2,
+    "rationale": "Suspects approach traps with machine-perfect accuracy, unlike humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T02:56:38.096Z",
+    "backtest": {
+      "botCaught": 7456,
+      "botTotal": 17256,
+      "humanFlagged": 27,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 15,
+      "meanScore": 0.27
+    }
+  },
+  {
+    "id": "r_high_pause_stddev_854",
+    "when": [
+      {
+        "feat": "pause_stddev_ticks",
+        "op": ">",
+        "v": 0.1
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Suspects show higher pause variability, suggesting non-human timing behavior.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T03:01:24.847Z",
+    "backtest": {
+      "botCaught": 283,
+      "botTotal": 19167,
+      "humanFlagged": 1,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": false,
+    "alarm": {
+      "hits": 15,
+      "meanScore": 0.37
+    }
+  },
+  {
+    "id": "r_low_revisit_ratio_954",
+    "when": [
+      {
+        "feat": "revisit_ratio",
+        "op": "<",
+        "v": 0.22
+      }
+    ],
+    "weight": 0.25,
+    "rationale": "Suspects revisit areas more frequently, indicating circling behavior not seen in humans.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T03:03:28.954Z",
+    "backtest": {
+      "botCaught": 17620,
+      "botTotal": 20160,
+      "humanFlagged": 16,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 32,
+      "meanScore": 0.26
+    }
+  },
+  {
+    "id": "r_pause_stddev_low_448",
+    "when": [
+      {
+        "feat": "pause_stddev_ticks",
+        "op": "<",
+        "v": 0.5
+      }
+    ],
+    "weight": 0.25,
+    "rationale": "Bots show near-zero pause variability; humans vary more.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T03:16:58.111Z",
+    "backtest": {
+      "botCaught": 26645,
+      "botTotal": 27074,
+      "humanFlagged": 100,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 18,
+      "meanScore": 0.36
+    }
+  },
+  {
+    "id": "r_high_revisit_ratio",
+    "when": [
+      {
+        "feat": "revisit_ratio",
+        "op": ">",
+        "v": 0.2
+      }
+    ],
+    "weight": 0.3,
+    "rationale": "Humans revisit less; bots circle with high revisit ratios.",
+    "author": "agent",
+    "status": "shadow",
+    "createdAt": "2026-09-11T03:23:50.822Z",
+    "backtest": {
+      "botCaught": 8499,
+      "botTotal": 30768,
+      "humanFlagged": 95,
+      "humanTotal": 101
+    },
+    "approvedBy": null,
+    "risky": true,
+    "alarm": {
+      "hits": 48,
+      "meanScore": 0.38
+    }
+  }
+]

@@ -2,28 +2,54 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Telemetry (placeholder)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trap Arena — Detection</title>
   <link rel="icon" href="data:,">
-  <!-- PLACEHOLDER — owned by the Dashboard workstream, replace freely.
-       Exists so the game side can verify /telemetry end to end. -->
   <style>
-    body { margin: 16px; background: #0e1116; color: #c9d1d9; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-    canvas { background: #161b22; width: 100%; max-width: 960px; border: 1px solid #30363d; display: block; }
-    table { border-collapse: collapse; margin-top: 12px; }
-    td, th { padding: 2px 12px 2px 0; text-align: left; }
-    .bot { color: #f25f7a; } .human { color: #4ea8f2; } .flag { font-weight: bold; }
+    body { margin: 0; padding: 16px; background: #0e1116; color: #c9d1d9; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    h1 { font-size: 15px; margin: 0 0 4px; color: #e6edf3; }
+    #status { color: #8b949e; margin-bottom: 10px; }
+    .wrap { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+    @media (max-width: 1100px) { .wrap { grid-template-columns: 1fr; } }
+    canvas { background: #161b22; width: 100%; border: 1px solid #30363d; display: block; }
+    .legend { color: #8b949e; margin-top: 6px; }
+    .legend b { font-weight: 600; }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: left; color: #8b949e; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid #30363d; }
+    td { padding: 7px 8px; border-bottom: 1px solid #21262d; vertical-align: top; font-variant-numeric: tabular-nums; }
+    tr.flagged td { background: rgba(226, 79, 108, 0.12); }
+    .who b { color: #e6edf3; }
+    .kind-bot { color: #f25f7a; } .kind-human { color: #4ea8f2; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-weight: 700; font-size: 11px; border: 1px solid currentColor; white-space: nowrap; }
+    .chip.flag { color: #0e1116; background: #f25f7a; border-color: #f25f7a; }
+    .chip.ok { color: #3fb97a; }
+    .chip.wait { color: #8b949e; }
+    .muted { color: #8b949e; }
+    .hot { color: #f2c14e; font-weight: 700; }
+    .sub { display: block; font-size: 11px; color: #8b949e; }
   </style>
 </head>
 <body>
+  <h1>Trap Arena — live detection</h1>
   <div id="status">connecting…</div>
-  <canvas id="traces" width="1600" height="900"></canvas>
-  <table><thead><tr><th>id</th><th>kind</th><th>score</th><th>flagged</th><th>events</th></tr></thead><tbody id="rows"></tbody></table>
+  <div class="wrap">
+    <div>
+      <canvas id="traces" width="1600" height="900"></canvas>
+      <div class="legend">last 10 s of movement · <b class="kind-human">blue</b> declared human · <b class="kind-bot">red</b> declared bot · thick line = flagged by the Python classifier</div>
+    </div>
+    <table>
+      <thead><tr><th>player</th><th>verdict</th><th>trap trips / 60 s</th><th>suspicious windows</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
   <script type="module">
     import * as C from '/constants.js';
     const key = new URLSearchParams(location.search).get('key') ?? '';
     const ctx = document.getElementById('traces').getContext('2d');
     const rows = document.getElementById('rows');
     const status = document.getElementById('status');
+    const TRAP_RATE_LIMIT = 15; // detection/traprate.py MAX_TRIPS
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
     function connect() {
       const ws = new WebSocket(`ws://${location.host}${C.PATHS.TELEMETRY}?key=${encodeURIComponent(key)}`);
@@ -31,21 +57,49 @@
       ws.onclose = () => { status.textContent = 'disconnected (wrong ?key= or server down) — retrying…'; setTimeout(connect, 1000); };
     }
 
+    function verdict(py) {
+      if (!py) return '<span class="chip wait">watching</span><span class="sub">no closed window yet</span>';
+      const loops = py.loop ? Object.entries(py.loop.counts).map(([k, v]) => `${k}×${v}`).join(', ') : '';
+      if (py.flagged) {
+        const why = [];
+        if (py.trapRate) why.push(`trap rate: ${py.trapRate.trips} trips in ${py.trapRate.windowSeconds} s`);
+        if (py.loop?.flagged) why.push(`looping: ${loops}`);
+        if (!why.length) why.push('movement evidence');
+        return `<span class="chip flag">FLAGGED</span>${why.map((w) => `<span class="sub">${esc(w)}</span>`).join('')}`;
+      }
+      const watch = py.loop ? `<span class="sub">looping ${py.loop.windows}/${py.loop.flagAt}: ${esc(loops)}</span>` : '';
+      return `<span class="chip ok">not flagged</span>${watch}`;
+    }
+
     function draw(msg) {
-      status.textContent = `tick ${msg.tick} · ${msg.players.length} players · ${msg.categories.length} trap categories`;
+      const players = [...msg.players].filter((p) => (!p.idle && p.trace.length > 1) || p.python);
+      const idle = msg.players.length - players.length;
+      const flagged = players.filter((p) => p.python?.flagged).length;
+      status.textContent = `tick ${msg.tick} · ${players.length} players · ${flagged} flagged by the Python classifier` +
+        (idle ? ` · ${idle} idle tab${idle > 1 ? 's' : ''} hidden` : '');
+
       ctx.clearRect(0, 0, C.WORLD_W, C.WORLD_H);
       ctx.fillStyle = '#2d333b';
       for (const o of C.OBSTACLES) ctx.fillRect(o.x, o.y, o.w, o.h);
-      for (const p of msg.players) {
+      for (const p of players) {
         ctx.strokeStyle = p.kind === 'bot' ? '#f25f7a' : '#4ea8f2';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = p.python?.flagged ? 6 : 2;
         ctx.beginPath();
         p.trace.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
         ctx.stroke();
       }
-      rows.innerHTML = msg.players.map((p) =>
-        `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id}</td><td>${p.kind}</td>` +
-        `<td>${p.score.toFixed(2)}</td><td>${p.flagged ? 'YES' : ''}</td><td>${p.events.length}</td></tr>`).join('');
+
+      players.sort((a, b) => (b.python?.flagged ? 1 : 0) - (a.python?.flagged ? 1 : 0) || b.trips60s - a.trips60s);
+      rows.innerHTML = players.map((p) => {
+        const py = p.python;
+        const sigs = py ? Object.entries(py.signatures).map(([k, v]) => `${k}×${v}`).join(', ') : '';
+        return `<tr class="${py?.flagged ? 'flagged' : ''}">` +
+          `<td class="who"><b>${esc(p.name ?? p.id.slice(0, 6))}</b><span class="sub kind-${p.kind}">${p.labelRejected ? 'collect link · human label REJECTED' : p.name ? 'collected human' : `declared ${p.kind}`}</span></td>` +
+          `<td>${verdict(py)}</td>` +
+          `<td><span class="${p.trips60s >= TRAP_RATE_LIMIT ? 'hot' : ''}">${p.trips60s}</span><span class="sub">flag at ${TRAP_RATE_LIMIT}</span></td>` +
+          `<td>${py ? `${py.suspicious} / ${py.windows}` : '<span class="muted">—</span>'}<span class="sub">${esc(sigs)}</span></td>` +
+          '</tr>';
+      }).join('');
     }
     connect();
   </script>

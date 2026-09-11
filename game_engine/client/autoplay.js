@@ -36,7 +36,33 @@ const realPos = (e) => ({ x: e.realX ?? e.x, y: e.realY ?? e.y });
 export const FARM_FILTERS = {
   naive: () => true,
   evasive: (e) => SPRITES.has(e.sprite),
+  // `patient` filters exactly like evasive. The difference is not what it
+  // believes, it is how it moves — see the metronome below. Note what NO
+  // filter here can do: unreachable_bait uses a real sprite, so it survives
+  // all three. Filtering the wire cannot tell you whether a chest has a path.
+  patient: (e) => SPRITES.has(e.sprite),
 };
+
+// Patient mode: the evasive filter, plus a scheduler.
+//
+// The pause length is tight on purpose — a person's stops vary wildly, a
+// timer's do not, and pause_mean_ticks / pause_stddev_ticks are where that
+// shows. The curved approach is the other half: a single dog-leg still ends in
+// a straight final leg, and the final leg is exactly what approach_error
+// measures, so the aim point is re-drawn every second or so and the whole walk
+// becomes an arc. Together they are what carries this bot under rules v1 —
+// which is the gap the agent is meant to discover.
+const PATIENT_PAUSE_MIN = 110;
+const PATIENT_PAUSE_MAX = 130;
+const PATIENT_GAP_MIN = 55;      // ticks of walking between pauses
+const PATIENT_GAP_MAX = 85;
+const PATIENT_DETOUR_MIN = 120;  // lateral offset of the aim point, in units
+const PATIENT_DETOUR_MAX = 200;
+const PATIENT_WAYPOINT_HIT = 45;
+const PATIENT_RECURVE_MIN = 25;  // ticks before the detour is re-aimed
+const PATIENT_RECURVE_MAX = 40;
+
+const randBetween = (rng, lo, hi) => lo + Math.floor(rng() * (hi - lo + 1));
 
 // ── Local obstacle steering (a "bug algorithm", not pathfinding) ───────────
 // Movement is still "walk straight at the target" in spirit — no route
@@ -143,16 +169,61 @@ class StuckGuard {
  * next decision with no reconnect, since it's read fresh each tick.
  */
 export class NaiveBrain {
-  constructor(modeState = { mode: 'naive' }) {
+  constructor(modeState = { mode: 'naive' }, rng = Math.random) {
     this.modeState = modeState;
+    this.rng = rng;
     this.guard = new StuckGuard();
     this.input = STOP;
     this.lastTargetId = null;
     this.wallFollow = { side: 0 }; // 0 = no wall currently being followed, else +1/-1
+    // Patient state only; the other two modes never look at it.
+    this.pauseUntil = 0;
+    this.nextPauseAt = randBetween(rng, PATIENT_GAP_MIN, PATIENT_GAP_MAX);
+    this.waypoint = null;
+    this.waypointFor = null;
+    this.recurveAt = 0;
+  }
+
+  /** @returns {boolean} true if this tick is spent standing still. */
+  #metronome(tick) {
+    if (this.modeState.mode !== 'patient') return false;
+    if (tick < this.pauseUntil) return true;
+    if (tick >= this.nextPauseAt) {
+      this.pauseUntil = tick + randBetween(this.rng, PATIENT_PAUSE_MIN, PATIENT_PAUSE_MAX);
+      this.nextPauseAt = this.pauseUntil + randBetween(this.rng, PATIENT_GAP_MIN, PATIENT_GAP_MAX);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A point off to one side of the straight line to the target. Walking the
+   * curve instead of the line is what a bot author adds the first time someone
+   * tells them "you were flagged for moving in straight lines".
+   */
+  #aimPoint(you, target, id, tick) {
+    if (this.modeState.mode !== 'patient') return target;
+    if (this.waypointFor !== id || tick >= this.recurveAt) {
+      this.recurveAt = tick + randBetween(this.rng, PATIENT_RECURVE_MIN, PATIENT_RECURVE_MAX);
+      this.waypointFor = id;
+      const dx = target.x - you.x;
+      const dy = target.y - you.y;
+      const len = Math.hypot(dx, dy);
+      if (len < PATIENT_WAYPOINT_HIT) { this.waypoint = null; return target; }
+      const off = randBetween(this.rng, PATIENT_DETOUR_MIN, PATIENT_DETOUR_MAX) * (this.rng() < 0.5 ? 1 : -1);
+      this.waypoint = {
+        x: Math.min(C.WORLD_W - 20, Math.max(20, you.x + dx / 2 + (-dy / len) * off)),
+        y: Math.min(C.WORLD_H - 20, Math.max(20, you.y + dy / 2 + (dx / len) * off)),
+      };
+    }
+    if (!this.waypoint) return target;
+    if (d2(this.waypoint, you) < PATIENT_WAYPOINT_HIT ** 2) { this.waypoint = null; return target; }
+    return this.waypoint;
   }
 
   decide({ you, entities, tick }) {
     this.guard.expire(tick);
+    if (this.#metronome(tick)) return (this.input = STOP);
     const filter = FARM_FILTERS[this.modeState.mode] ?? FARM_FILTERS.naive;
     // Player reaction: contest-avoidance. The same filter applies here as to loot —
     // per OPEN DECISIONS #1, phantom_player is sprite-null exactly like invisible_entity,
@@ -174,7 +245,8 @@ export class NaiveBrain {
       this.wallFollow.side = 0; // new target: any remembered side belonged to the old one
     }
     this.guard.update(you, this.input.dx !== 0 || this.input.dy !== 0, best?.id, tick);
-    this.input = best ? steerAround(you, bestPos, this.wallFollow) : STOP;
+    const aim = best ? this.#aimPoint(you, bestPos, best.id, tick) : null;
+    this.input = aim ? steerAround(you, aim, this.wallFollow) : STOP;
     return this.input;
   }
 }

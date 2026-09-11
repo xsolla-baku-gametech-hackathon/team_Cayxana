@@ -96,3 +96,17 @@ export const OBSTACLES = Object.freeze([
 
 /** Interior of the sealed vault — visible to everyone, reachable by no one. For unreachable_bait. */
 export const VAULT = Object.freeze({ x: 816, y: 656, w: 68, h: 68 });
+
+// ── Adaptive rule layer (P6) ────────────────────────────────────────────
+// Trap hits are evidence; rules turn evidence into a score. The evasion
+// monitor watches the gap between the two: traps firing while scores stay
+// low means the current rules cannot see what the traps just proved.
+export const EVASION_CHECK_EVERY_TICKS = 100;     // per player
+export const EVASION_WINDOW_TICKS = 60 * TICK_HZ; // "the last 60 s"
+export const EVASION_MIN_HITS = 4;
+export const EVASION_MAX_MEAN_SCORE = 0.4;
+export const AGENT_COOLDOWN_MS = 2 * 60 * 1000;   // one agent invocation per 2 min, globally
+
+// Weights the agent is allowed to propose. Clamped, never rejected.
+export const RULE_WEIGHT_MIN = 0.1;
+export const RULE_WEIGHT_MAX = 0.7;

@@ -106,10 +106,13 @@
     }
 
     function renderPanel() {
-      const bots = snap.players.filter((p) => p.kind === 'bot').length;
+      const active = snap.players.filter((p) => !p.idle || p.hits > 0);
+      const idle = snap.players.length - active.length;
+      const bots = active.filter((p) => p.kind === 'bot').length;
       const chained = snap.traps.filter((t) => t.chainDepth > 0).length;
-      $('status').textContent = `tick ${snap.tick} · ${snap.players.length - bots} human · ${bots} bot · ${snap.traps.length} active traps (${chained} chained)`;
-      $('players').innerHTML = [...snap.players]
+      $('status').textContent = `tick ${snap.tick} · ${active.length - bots} human · ${bots} bot · ${snap.traps.length} active traps (${chained} chained)` +
+        (idle ? ` · ${idle} idle tab${idle > 1 ? 's' : ''} hidden` : '');
+      $('players').innerHTML = active
         .sort((a, b) => b.hits - a.hits)
         .map((p) => `<tr class="${p.kind}${p.flagged ? ' flag' : ''}"><td>${p.id === watchedId ? '◀ ' : ''}${p.id.slice(0, 6)}</td><td>${p.kind}</td><td>${p.hits}</td><td>${p.score.toFixed(2)}</td></tr>`)
         .join('');

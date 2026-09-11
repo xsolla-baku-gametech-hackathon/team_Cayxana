@@ -1,0 +1,20 @@
+[
+  {
+    "id": "r_long_stop_constant",
+    "when": [
+      { "feat": "pause_mean_ticks", "op": ">=", "v": 40 },
+      { "feat": "speed_cv", "op": ">=", "v": 0.9 }
+    ],
+    "weight": 0.4,
+    "rationale": "stops averaging two seconds or more, with speed swinging between full and zero - a scheduler waiting out a timer, not someone hesitating"
+  },
+  {
+    "id": "r_pause_metronome",
+    "when": [
+      { "feat": "pause_count", "op": ">=", "v": 2 },
+      { "feat": "pause_stddev_ticks", "op": "<", "v": 3 }
+    ],
+    "weight": 0.6,
+    "rationale": "two or more pauses of near-identical length - a timer, not a person"
+  }
+]
