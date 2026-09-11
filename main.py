@@ -12,11 +12,12 @@ from detection import Detector, TrapSignal, bandit
 from detection.anomaly import AnomalyMonitor
 from detection.bandit import DEFAULT_CATEGORIES
 from detection.burn import BurnMonitor
+from detection.clock import TICKS_PER_HOUR
 from detection.features import _points, extract_features
 from detection.rules import DEFAULT_RULES, rule_for
-from detection.signatures import DETECTORS, detect
 from detection.scoring import SUSPICIOUS, classify
-from tests.fixtures import BOTS, HUMANS, TICKS, TRAP, simulate_session
+from detection.signatures import DETECTORS, detect
+from tests.fixtures import BOTS, HUMANS, TRAP, simulate_session
 
 TRACES = 300
 SESSIONS = 200
@@ -66,7 +67,7 @@ def hidden_population_demo():
     it cannot farm traps at a human rate and still be worth running. The
     output is a review list - nobody is banned by this.
     """
-    hour, human_gap, bot_gap = 72_000, (3000, 9000), (600, 1200)
+    hour, human_gap, bot_gap = TICKS_PER_HOUR, (3000, 9000), (600, 1200)
     rng = random.Random(5)
     monitor = AnomalyMonitor()
     truth = {}
