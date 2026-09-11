@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 from . import settings as _settings
-from .features import Features, _points, extract_features
+from .features import Features, _points, enough_evidence, extract_features
 from .signatures import detect
 
 # Weights follow the separation measured across all labelled populations,
@@ -59,9 +59,6 @@ MIN_WEIGHT = 0.50
 # spent still. Straightness and revisits alone describe a shape, not a
 # behaviour, and a corridor produces both.
 RHYTHM_FEATURES = ("pause_variance", "idle_share")
-# A trace also has to be long enough to contain a rhythm at all.
-MIN_SAMPLES = 40
-MIN_SPAN_TICKS = 40
 
 # Above this a single event counts as suspicious. Chosen for zero false
 # positives across every labelled human population, not for maximum catches.
@@ -91,7 +88,7 @@ class Score:
         if self.signatures:
             return True
         if threshold is None:
-            threshold = _settings.live().suspicious
+            threshold = _settings.resolve(None).suspicious
         return self.value is not None and self.value > threshold
 
 
@@ -114,9 +111,11 @@ def _has_rhythm(names) -> bool:
 def score_features(features: Features, signatures: tuple[str, ...] = (),
                    settings=None) -> Score:
     """``settings`` is the number set to score with; None means the live one."""
-    current = _settings.live() if settings is None else settings
+    current = _settings.resolve(settings)
     weights, saturation = current.normalised_weights(), current.saturation
-    if features.samples < MIN_SAMPLES or features.span_ticks < MIN_SPAN_TICKS:
+    # A trace also has to be long enough to contain a rhythm at all. That
+    # floor is ``features.enough_evidence``, shared with the signatures.
+    if not enough_evidence(features):
         return Score(None, features, (), signatures)  # too little observed
 
     contributions, weight_sum, used = 0.0, 0.0, []
@@ -141,7 +140,7 @@ def classify(trace, trap_event=None, settings=None) -> Score:
 
 def score_details(features: Features, settings=None) -> dict:
     """Display-only partial estimate. Never replaces Score.value in decisions."""
-    current = _settings.live() if settings is None else settings
+    current = _settings.resolve(settings)
     weights, saturation = current.normalised_weights(), current.saturation
     available = {name: getattr(features, name) for name in weights
                  if getattr(features, name) is not None and isfinite(getattr(features, name))}
@@ -149,7 +148,7 @@ def score_details(features: Features, settings=None) -> dict:
     weight = sum(weights[name] for name in available)
     reason = 'complete'
     partial = None
-    if features.samples < MIN_SAMPLES or features.span_ticks < MIN_SPAN_TICKS:
+    if not enough_evidence(features):
         reason = 'short_trace'
     elif features.straightness is None:
         reason = 'no_movement'
