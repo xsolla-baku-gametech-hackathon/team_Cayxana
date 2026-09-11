@@ -3,12 +3,17 @@ from collections import deque
 from dataclasses import dataclass, field
 from math import isfinite
 
+from .clock import seconds, ticks
 from .scoring import classify
 
-WINDOW = 1200  # 60 seconds at 20 Hz; more opportunity to observe pauses
-REPORT = 7 * 60 * 20
-HORIZON = 9 * 60 * 20
+WINDOW = ticks(60)  # more opportunity to observe pauses than a trap window
+REPORT = ticks(7 * 60)
+HORIZON = ticks(9 * 60)
 MIN_COVERAGE = 0.80
+# The rolling average a monitored player is held to. The same number the
+# score side calls SUSPICIOUS, restated here because this is a different
+# question: sustained over nine minutes, not one window after a trap.
+HIGH_RISK_AVERAGE = 0.75
 
 
 @dataclass
@@ -65,7 +70,8 @@ class LongTermMonitor:
         elapsed = end - state.started
         rolling = aggregate(state.scores, min(elapsed, HORIZON) // WINDOW)
         eligible = elapsed >= HORIZON and rolling['coverage'] >= MIN_COVERAGE
-        high = eligible and rolling['averageScore'] is not None and rolling['averageScore'] > 0.75
+        high = (eligible and rolling['averageScore'] is not None
+                and rolling['averageScore'] > HIGH_RISK_AVERAGE)
         state.flagged |= high
         report = end >= state.report_at
         if report:
@@ -73,10 +79,10 @@ class LongTermMonitor:
             state.last_report = dict(tick=end, **aggregate(rows, REPORT // WINDOW))
             state.report_at += REPORT
         record = dict(type='long_term', playerId=player_id, tick=end,
-                      monitoringSeconds=elapsed / 20, rolling9m=rolling,
+                      monitoringSeconds=seconds(elapsed), rolling9m=rolling,
                       eligible=eligible, highRisk=high, flagged=state.flagged,
                       report7m=state.last_report, reportUpdated=report,
-                      nextReportTick=state.report_at, threshold=0.75,
+                      nextReportTick=state.report_at, threshold=HIGH_RISK_AVERAGE,
                       minimumCoverage=MIN_COVERAGE)
         state.samples = []
         state.end += WINDOW
