@@ -21,9 +21,21 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from . import settings as _settings
+from .clock import ticks as _ticks
 
-# 20 ticks/sec, so 200 ticks is the ~10 s of movement the features expect.
-DEFAULT_OBSERVATION_TICKS = 200
+# ~10 s of movement, which is what the features expect to see.
+DEFAULT_OBSERVATION_TICKS = _ticks(10)
+
+# The trap system has called the same mechanism by more than one name.
+# Both the live bridge and the offline replay have to fold the old name
+# into the calibrated one, or a trip lands on the uncalibrated rule and
+# can never flag; they both do it through here.
+CATEGORY_ALIASES = {"ghost_loot": "invisible_entity"}
+
+
+def canonical_category(category: str) -> str:
+    """The name this category is calibrated under. Unknown names pass through."""
+    return CATEGORY_ALIASES.get(category, category)
 
 
 @dataclass(frozen=True)
