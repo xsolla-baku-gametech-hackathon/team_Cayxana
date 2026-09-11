@@ -21,7 +21,7 @@ import * as C from '../constants.js';
 import { newEntityId, isWalkable, isReachable, spriteNamesOfKind, ITEM_STYLE } from './world.js';
 
 const CATEGORY = 'ghost_loot';
-const TRAPS_PER_PLAYER = 3;
+const TRAPS_PER_PLAYER = 10;
 const TTL_MIN_TICKS = 80;        // 4 s   (plan said 40–120; longer so the fast bot can reach them)
 const TTL_MAX_TICKS = 200;       // 10 s
 const RESPAWN_GAP_MEAN_TICKS = 40;
@@ -224,7 +224,7 @@ export function checkTraps(playerId, position, tick) {
   }
   // One category per tick: two trips at once would be two observation windows
   // opened on the same movement, which is one piece of evidence counted twice.
-  if (!firedTrap) return checkBait(playerId, position, tick);
+  if (!firedTrap) return null;
 
   s.chain = s.chain.filter((t) => t !== firedTrap);
   stats.fired++;
@@ -241,142 +241,6 @@ export function checkTraps(playerId, position, tick) {
   };
 }
 
-
-
-// ── Category 2: unreachable_bait ───────────────────────────────────────
-//
-// A high-value chest sealed inside the vault. It is drawn with a REAL sprite,
-// so it is on everyone's screen — the evasive trick of "only trust entities
-// whose sprite I can draw" does not touch it. What it has instead is no path:
-// world.js flood-fills the map at startup and the vault interior is not
-// connected to anything.
-//
-// So the tell is not "you walked to something invisible", it is "you kept
-// working at something you had no route to". A person walks up to a sealed
-// wall once, sees the chest is behind it, and leaves. A pathless farming loop
-// keeps re-targeting it, because to the loop it is simply the nearest loot.
-//
-// This is deliberately the category the evasive bot cannot filter its way out
-// of. If it could, one line of bot code would defeat the whole system.
-
-const BAIT_CATEGORY = 'unreachable_bait';
-const BAIT_ENGAGE_DIST = 120;  // being this close to the vault wall counts as "at it"
-const BAIT_NEAR_DIST = 60;     // spec: ~60 units of the boundary …
-const BAIT_NEAR_TICKS = 15;    // … for 15 consecutive ticks
-const BAIT_STALL_TICKS = 20;   // or no net progress toward it for 20 ticks
-const BAIT_STALL_PROGRESS = 8; // "progress" = this many units closer, in world units
-const BAIT_QUIET_TICKS = 120;  // after a trip, leave this player alone for 6 s
-const BAIT_GRACE_VISITS = 2;   // the first approaches are free — see below
-
-const BAIT = (() => {
-  const c = { x: C.VAULT.x + C.VAULT.w / 2, y: C.VAULT.y + C.VAULT.h / 2 };
-  // Loud, at startup, not silently at 2 a.m. during the demo. If the vault
-  // ever became reachable this trap would accuse people who simply walked in
-  // and took the chest.
-  if (!isWalkable(c.x, c.y, C.PLAYER_RADIUS) || isReachable(c.x, c.y)) {
-    throw new Error(
-      `VAULT at (${c.x}, ${c.y}) is not a sealed pocket — unreachable_bait would ` +
-      'flag honest players; check the vault walls in constants.js OBSTACLES',
-    );
-  }
-  return {
-    id: newEntityId(),
-    type: 'chest',
-    sprite: pick(spriteNamesOfKind('chest')), // in the asset table: everyone sees it
-    color: ITEM_STYLE.chest.color,
-    value: ITEM_STYLE.chest.value,
-    x: c.x,
-    y: c.y,
-  };
-})();
-
-/** @type {Map<string, object>} per-player approach state for the bait */
-const baitState = new Map();
-const baitStats = { fired: 0, spawned: 1 }; // one bait, placed once, never respawned
-
-/** Distance from a point to the outside of the vault's wall block (0 when inside it). */
-function distToVault(p) {
-  const r = { x: C.VAULT.x - 16, y: C.VAULT.y - 16, w: C.VAULT.w + 32, h: C.VAULT.h + 32 };
-  const dx = Math.max(r.x - p.x, 0, p.x - (r.x + r.w));
-  const dy = Math.max(r.y - p.y, 0, p.y - (r.y + r.h));
-  return Math.hypot(dx, dy);
-}
-
-/**
- * One tick of the bait for one player. Returns the same event shape checkTraps
- * returns, or null.
- */
-function checkBait(playerId, position, tick) {
-  let st = baitState.get(playerId);
-  if (!st) {
-    st = { engagedSince: null, nearSince: null, ref: null, quietUntil: 0, visits: 0 };
-    baitState.set(playerId, st);
-  }
-  if (tick < st.quietUntil) return null;
-
-  const d = distToVault(position);
-  if (d > BAIT_ENGAGE_DIST) { // walked away: this approach is over
-    st.engagedSince = null;
-    st.nearSince = null;
-    st.ref = null;
-    return null;
-  }
-
-  st.engagedSince ??= tick;
-  st.ref ??= { tick, dist: d };
-
-  let reason = null;
-  if (d <= BAIT_NEAR_DIST) {
-    st.nearSince ??= tick;
-    if (tick - st.nearSince >= BAIT_NEAR_TICKS) reason = 'loitering at the wall';
-  } else {
-    st.nearSince = null;
-  }
-  if (!reason && tick - st.ref.tick >= BAIT_STALL_TICKS) {
-    if (st.ref.dist - d < BAIT_STALL_PROGRESS) reason = 'no progress toward it';
-    else st.ref = { tick, dist: d };
-  }
-  if (!reason) return null;
-
-  st.visits++;
-  st.quietUntil = tick + BAIT_QUIET_TICKS;
-  st.engagedSince = null;
-  st.nearSince = null;
-  st.ref = null;
-
-  // The first approaches are free, and that is the whole argument for this
-  // category being fair. Anyone will walk up to a chest they can see once —
-  // that is curiosity, and it is exactly what a person does before they notice
-  // the wall and go somewhere else. What a person does NOT do is come back and
-  // press against it again and again, because they learned. A loop that picks
-  // the nearest loot has nothing to learn with.
-  if (st.visits <= BAIT_GRACE_VISITS) return null;
-
-  baitStats.fired++;
-  return {
-    trapId: BAIT.id,
-    category: BAIT_CATEGORY,
-    tick,
-    // The trap is the chest: that is what they were walking at, so that is
-    // what straightness and approach error are measured against.
-    x: BAIT.x,
-    y: BAIT.y,
-    // …but they never touched it, and could not have. `dwellFrom` is where
-    // they actually ended up — the wall — so dwell_ticks reads as "how long
-    // they pressed against it" instead of the constant zero it would be if
-    // dwell were measured at an unreachable point.
-    dwellFrom: { x: Math.round(position.x * 10) / 10, y: Math.round(position.y * 10) / 10 },
-    playerId,
-    // The chest has been on screen since the world started, so "how fast did
-    // you react to it appearing" has no meaning here. Tick 0 makes
-    // reaction_delay saturate rather than quietly read as instant.
-    spawnTick: 0,
-    chainDepth: 0,
-    visits: st.visits,
-    reason,
-  };
-}
-
 /** Called once per player per tick, after checkTraps. Appends that player's active traps. */
 export function injectTraps(entities, playerId, tick) {
   const s = players.get(playerId);
@@ -388,23 +252,10 @@ export function injectTraps(entities, playerId, tick) {
   return entities;
 }
 
-/**
- * The vault bait, appended for EVERY viewer including one with no trap state.
- * It is a normal-looking chest with a real sprite, so it is drawn on screen
- * exactly like loot — which is what makes ignoring it a decision rather than
- * an accident of not having the asset table.
- */
-export function injectBait(entities) {
-  entities.push({ id: BAIT.id, type: BAIT.type, x: BAIT.x, y: BAIT.y,
-                  sprite: BAIT.sprite, color: BAIT.color, value: BAIT.value });
-  return entities;
-}
-
 /** "caught" is left to the dashboard (events + kind), so this module never sees the kind label. */
 export function getCategoryStats() {
   return [
     { category: CATEGORY, weight: 1, fired: stats.fired, caught: 0, burned: false },
-    { category: BAIT_CATEGORY, weight: 1, fired: baitStats.fired, caught: 0, burned: false },
   ];
 }
 
@@ -416,13 +267,9 @@ export function getAdminSnapshot() {
       out.push({ trapId: t.trapId, playerId: t.playerId, category: t.category, type: t.type, x: t.x, y: t.y, expiresTick: t.expiresTick, chainDepth: t.chainDepth });
     }
   }
-  // The bait belongs to nobody: one chest, the same one on every player's screen.
-  out.push({ trapId: BAIT.id, playerId: null, category: BAIT_CATEGORY, type: BAIT.type,
-             x: BAIT.x, y: BAIT.y, expiresTick: null, chainDepth: 0 });
   return out;
 }
 
 export function onPlayerLeave(playerId) {
   players.delete(playerId);
-  baitState.delete(playerId);
 }
