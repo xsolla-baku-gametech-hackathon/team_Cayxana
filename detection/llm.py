@@ -36,6 +36,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from .jsonio import strip_fences
+
 DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
 DEFAULT_MODEL = "qwen/qwen3-vl-8b"
 DEFAULT_TIMEOUT = 120.0
@@ -49,7 +51,6 @@ DEFAULT_TEMPERATURE = 0.15
 DEFAULT_MAX_TOKENS = 700
 
 THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
-FENCE_RE = re.compile(r"^\s*```(?:json)?|```\s*$", re.MULTILINE)
 
 
 class LLMUnavailable(RuntimeError):
@@ -207,7 +208,7 @@ def _text_of(payload: dict) -> str:
     text = str(message.get("content") or "")
     # Qwen3 emits a reasoning block when thinking is on. It is not an error
     # and not an answer, so it is removed rather than refused.
-    text = FENCE_RE.sub("", THINK_RE.sub("", text)).strip()
+    text = strip_fences(THINK_RE.sub("", text))
     if not text:
         raise LLMUnavailable(choices[0].get("finish_reason") or "empty answer")
     return text
