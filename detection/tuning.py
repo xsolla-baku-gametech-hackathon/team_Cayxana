@@ -25,19 +25,16 @@ here bans anyone.
 
 from __future__ import annotations
 
-import json
-import re
 import statistics as st
 from dataclasses import dataclass, field
 
 from . import settings as _settings
-from .features import Features, _points, extract_features
+from .features import MIN_SAMPLES, Features, _points, extract_features
+from .jsonio import decode
 from .llm import HUMAN_FACTORS
 from .rules import rule_for
-from .scoring import MIN_SAMPLES, score_features
+from .scoring import score_features
 from .signatures import DETECTORS, KNOBS, detect
-
-FENCE_RE = re.compile(r"^\s*```(?:json)?|```\s*$", re.MULTILINE)
 
 # A round needs both sides present, or "no human was harmed" is vacuous.
 MIN_LABELLED_HUMANS = 8
@@ -362,13 +359,9 @@ def _ruleview(summary: dict) -> dict:
 
 def parse_adjustments(raw) -> tuple[dict, str, str]:
     """(overrides, note, reason). Unknown knobs are dropped, not fatal."""
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(FENCE_RE.sub("", raw).strip())
-        except (json.JSONDecodeError, ValueError):
-            return {}, "", "unparseable JSON"
-    if not isinstance(raw, dict):
-        return {}, "", "not an object"
+    raw, reason = decode(raw)
+    if raw is None:
+        return {}, "", reason
 
     adjustments = raw.get("adjustments", raw)
     if isinstance(adjustments, list):  # [{"knob": ..., "value": ...}, ...]
@@ -399,7 +392,7 @@ def assess(raw, observations, settings=None) -> TuningResult:
     anything, and only a candidate that measurably improves the recorded
     windows - without making a labelled human newly suspicious - survives.
     """
-    current = _settings.live() if settings is None else settings
+    current = _settings.resolve(settings)
     before = evaluate(observations, current)
     if before.humans < MIN_LABELLED_HUMANS or before.bots < MIN_LABELLED_BOTS:
         return TuningResult(False, "not enough labelled windows to judge a change",
@@ -454,7 +447,7 @@ def tune(call_llm, observations, settings=None, extra_note="",
     local model makes this free, so the alternative - accepting a worse
     round - buys nothing.
     """
-    current = _settings.live() if settings is None else settings
+    current = _settings.resolve(settings)
     usable = [o for o in observations if o.features.samples >= MIN_SAMPLES]
     summary = summarise(usable, current)
     note, best = extra_note, None
