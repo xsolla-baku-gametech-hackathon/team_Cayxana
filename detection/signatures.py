@@ -22,7 +22,7 @@ from collections import Counter
 from math import atan2, dist, pi
 
 from . import settings as _settings
-from .features import PAUSE_EPSILON, Features
+from .features import PAUSE_EPSILON, Features, enough_evidence
 
 # Thresholds sit far outside every human population measured, not next to
 # them; see tests/test_signatures.py, which fails if a human ever trips one.
@@ -40,10 +40,19 @@ MIN_QUANTISED_SHARE = 0.60
 MAX_METRONOME_VARIANCE = 0.5
 MIN_PAUSES_FOR_RHYTHM = 4
 MAX_REGULAR_GAP = 2
-# A signature is conclusive, so it needs at least as much evidence as a
-# score does. Without this floor a five-sample trace "proves" constant speed.
-MIN_SAMPLES = 40
-MIN_SPAN_TICKS = 40
+
+# Each detector's threshold, by the name ``settings`` knows it under.
+# ``_threshold`` falls back to these when a set of settings predates the
+# knob - which is how a detector that is not currently deployed (see
+# DISABLED_FOR_DIGITAL_INPUT) stays callable instead of raising KeyError.
+DEFAULT_THRESHOLDS = {
+    "max_constant_speed_cv": MAX_CONSTANT_SPEED_CV,
+    "min_rails_share": MIN_RAILS_SHARE,
+    "min_periodicity": MIN_PERIODICITY,
+    "max_frozen_heading_var": MAX_FROZEN_HEADING_VAR,
+    "min_quantised_share": MIN_QUANTISED_SHARE,
+    "max_metronome_variance": MAX_METRONOME_VARIANCE,
+}
 
 
 def _steps(points):
@@ -143,8 +152,7 @@ def speed_periodicity(points) -> float | None:
 # -- the detectors -----------------------------------------------------------
 
 def _threshold(name: str, settings) -> float:
-    current = _settings.live() if settings is None else settings
-    return current.signature[name]
+    return _settings.resolve(settings).signature.get(name, DEFAULT_THRESHOLDS[name])
 
 
 def metronome(features: Features, points, settings=None) -> bool | None:
@@ -197,23 +205,37 @@ KNOBS = {
     "frozen_heading": ("signature.max_frozen_heading_var", "lower"),
 }
 
-# ``constant_speed`` and ``quantised_steps`` are kept above but not run. In
-# this game input is -1/0/+1 per axis at a fixed PLAYER_SPEED, so every
-# keyboard player moves at constant speed in identical steps. Measured on
-# real play they fired on 98-100% of humans AND of every bot mode: they
-# separate nothing and flagged every real person.
-DISABLED_FOR_DIGITAL_INPUT = ("constant_speed", "quantised_steps")
-
-DETECTORS = {
+# Every signature that exists, deployed or not.
+ALL_DETECTORS = {
     "metronome": metronome,
+    "constant_speed": constant_speed,
     "rails": rails,
     "periodic": periodic,
     "frozen_heading": frozen_heading,
+    "quantised_steps": quantised_steps,
 }
+
+# ``constant_speed`` and ``quantised_steps`` are written above but not run.
+# In this game input is -1/0/+1 per axis at a fixed PLAYER_SPEED, so every
+# keyboard player moves at constant speed in identical steps. Measured on
+# real play they fired on 98-100% of humans AND of every bot mode: they
+# separate nothing and flagged every real person. They stay defined and
+# callable so the finding can be re-measured on an engine with analogue
+# input, where they would separate again.
+DISABLED_FOR_DIGITAL_INPUT = ("constant_speed", "quantised_steps")
+
+# What ``detect`` actually runs. Derived, so the exclusion above is the
+# single statement of which signatures are deployed - it used to be stated
+# twice, once in prose and once in a hand-written dict.
+DETECTORS = {name: fn for name, fn in ALL_DETECTORS.items()
+             if name not in DISABLED_FOR_DIGITAL_INPUT}
 
 
 def detect(features: Features, points, settings=None) -> tuple[str, ...]:
     """Names of every signature present. Empty means nothing conclusive."""
-    if features.samples < MIN_SAMPLES or features.span_ticks < MIN_SPAN_TICKS:
+    # A signature is conclusive, so it needs at least as much evidence as a
+    # score does - the same floor, shared with ``scoring``. Without it a
+    # five-sample trace "proves" constant speed.
+    if not enough_evidence(features):
         return ()
     return tuple(name for name, fn in DETECTORS.items() if fn(features, points, settings))
