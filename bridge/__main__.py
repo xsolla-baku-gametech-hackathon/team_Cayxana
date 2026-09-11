@@ -5,12 +5,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from detection import Detector, TrapSignal
+from detection.clock import TICK_HZ
 from detection.longterm import LongTermMonitor
 from detection.looping import LoopMonitor
-from detection.rules import rule_for
+from detection.rules import canonical_category, rule_for
 from detection.scoring import score_details
+from detection.suspicion import REQUIRED_EVENTS
 from detection.traprate import TrapRateMonitor
-from .reader import DEFAULT_TRACE_DIR, GameLogReader, latest_session
+from .reader import GameLogReader, latest_session
 
 
 class GameBridge:
@@ -18,8 +20,12 @@ class GameBridge:
         self.required_categories = required_categories
         # The adaptive layer survives a session restart: it is the only
         # thing here that is supposed to carry knowledge across sessions.
-        self.ai = ai if ai is not None else getattr(self, 'ai', None)
-        self.detector = Detector(required_categories=required_categories)
+        self.ai = ai
+        self.reset()
+
+    def reset(self):
+        """Drop every per-session monitor. Keeps ``ai``, which outlives one."""
+        self.detector = Detector(required_categories=self.required_categories)
         self.long_term = LongTermMonitor()
         self.trap_rate = TrapRateMonitor()
         self.looping = LoopMonitor()
@@ -27,56 +33,72 @@ class GameBridge:
         self.session = None
 
     def process(self, record):
-        kind = record['type']
+        """One log record in, the verdicts and monitoring records it produced out."""
         tick = record.get('tick', 0)
-        verdicts = []
-        monitoring = []
-        if kind == 'session':
-            if record.get('tickHz') != 20:
-                raise ValueError('Detector requires a 20 Hz game stream')
-            self.__init__(self.required_categories, self.ai)
-            self.session = record.get('startedAt')
-        elif kind == 'join':
-            self.players.add(record['playerId'])
-            if self.ai:
-                # Self-declared kind. It reaches the offline gate only; the
-                # classifier below never sees it.
-                self.ai.note_player(record['playerId'], record.get('kind'))
-        elif kind == 'trap':
-            player = record['playerId']
-            self.players.add(player)
-            rate = self.trap_rate.trip(player, tick)
-            if rate:
-                monitoring.append(rate)
-            self.looping.trip(player, tick)
-            # Same invisible-loot mechanism; retain original category for audit.
-            category = {'ghost_loot': 'invisible_entity'}.get(record['category'], record['category'])
-            self.detector.on_trap_signal(TrapSignal(
-                player, category, tick, record.get('x'), record.get('y'),
-                record.get('trapId'), {'sourceCategory': record['category']}))
-            if not rule_for(category).shadow:
-                self.long_term.start(player, tick)
-        elif kind == 'move':
-            for player, x, y in record['players']:
-                sample = {'tick': tick, 'x': x, 'y': y}
-                verdicts.extend(self.detector.on_movement(player, [sample]))
-                monitoring.extend(self.long_term.movement(player, sample))
-                monitoring.extend(self.looping.movement(player, sample))
-                if self.ai:
-                    self.ai.movement(player, sample)
-        elif kind == 'leave':
-            verdicts = self.detector.on_disconnect(record['playerId'])
-            self.players.discard(record['playerId'])
-            self.long_term.forget(record['playerId'])
-            self.trap_rate.forget(record['playerId'])
-            self.looping.forget(record['playerId'])
-            if self.ai:
-                self.ai.forget(record['playerId'])
+        handler = getattr(self, f"_on_{record['type']}", None)
+        verdicts, monitoring = handler(record, tick) if handler else ([], [])
         if self.ai:
             for verdict in verdicts:
                 self.ai.observe(verdict)
             self.ai.maybe_run()  # returns at once; a round runs off-thread
-        return [self.serialize(v, tick) for v in verdicts] + [dict(r, session=self.session) for r in monitoring]
+        return ([self.serialize(v, tick) for v in verdicts]
+                + [dict(r, session=self.session) for r in monitoring])
+
+    # -- one handler per record type; each returns (verdicts, monitoring) ----
+
+    def _on_session(self, record, tick):
+        if record.get('tickHz') != TICK_HZ:
+            raise ValueError(f'Detector requires a {TICK_HZ} Hz game stream')
+        self.reset()
+        self.session = record.get('startedAt')
+        return [], []
+
+    def _on_join(self, record, tick):
+        self.players.add(record['playerId'])
+        if self.ai:
+            # Self-declared kind. It reaches the offline gate only; the
+            # classifier below never sees it.
+            self.ai.note_player(record['playerId'], record.get('kind'))
+        return [], []
+
+    def _on_trap(self, record, tick):
+        player = record['playerId']
+        self.players.add(player)
+        monitoring = []
+        rate = self.trap_rate.trip(player, tick)
+        if rate:
+            monitoring.append(rate)
+        self.looping.trip(player, tick)
+        # Same invisible-loot mechanism; retain original category for audit.
+        category = canonical_category(record['category'])
+        self.detector.on_trap_signal(TrapSignal(
+            player, category, tick, record.get('x'), record.get('y'),
+            record.get('trapId'), {'sourceCategory': record['category']}))
+        if not rule_for(category).shadow:
+            self.long_term.start(player, tick)
+        return [], monitoring
+
+    def _on_move(self, record, tick):
+        verdicts, monitoring = [], []
+        for player, x, y in record['players']:
+            sample = {'tick': tick, 'x': x, 'y': y}
+            verdicts.extend(self.detector.on_movement(player, [sample]))
+            monitoring.extend(self.long_term.movement(player, sample))
+            monitoring.extend(self.looping.movement(player, sample))
+            if self.ai:
+                self.ai.movement(player, sample)
+        return verdicts, monitoring
+
+    def _on_leave(self, record, tick):
+        player = record['playerId']
+        verdicts = self.detector.on_disconnect(player)
+        self.players.discard(player)
+        self.long_term.forget(player)
+        self.trap_rate.forget(player)
+        self.looping.forget(player)
+        if self.ai:
+            self.ai.forget(player)
+        return verdicts, []
 
     def serialize(self, verdict, tick):
         return dict(type='verdict', session=self.session, playerId=verdict.player_id,
@@ -91,7 +113,8 @@ class GameBridge:
                     shadow=verdict.rule.shadow, insufficientData=verdict.insufficient_data,
                     signatures=list(verdict.signatures), features=asdict(verdict.features),
                     rule=asdict(verdict.rule),
-                    policy={'requiredEvents': 3, 'requiredCategories': self.required_categories},
+                    policy={'requiredEvents': REQUIRED_EVENTS,
+                            'requiredCategories': self.required_categories},
                     **score_details(verdict.features))
 
 
