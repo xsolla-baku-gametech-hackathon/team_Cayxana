@@ -20,7 +20,7 @@ Nothing here decides anything. It holds numbers and refuses silly ones.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 # Hard bounds per knob. Outside these a value is not a tuning decision, it
 # is a bug or a bad answer: clamp it. The ranges are wide enough to be
@@ -79,33 +79,7 @@ class Settings:
         Unknown knobs are ignored rather than raising: this is fed by a
         model, and one bad key must not lose the good ones beside it.
         """
-        weights = dict(self.weights)
-        saturation = dict(self.saturation)
-        signature = dict(self.signature)
-        rules = dict(self.rule_thresholds)
-        suspicious = self.suspicious
-
-        for knob, raw in overrides.items():
-            try:
-                value = float(raw)
-            except (TypeError, ValueError):
-                continue
-            if value != value:  # NaN
-                continue
-            group, _, rest = knob.partition(".")
-            if group == "weights" and rest in weights:
-                weights[rest] = _step(weights[rest], value, BOUNDS[knob])
-            elif group == "saturation" and rest in saturation:
-                saturation[rest] = _step(saturation[rest], value, BOUNDS[knob])
-            elif group == "signature" and rest in signature:
-                signature[rest] = _step(signature[rest], value, BOUNDS[knob])
-            elif knob == "suspicious":
-                suspicious = _step(suspicious, value, BOUNDS[knob])
-            elif group == "rule" and rest.endswith(".threshold"):
-                category = rest[: -len(".threshold")]
-                current = rules.get(category, written_rule_threshold(category))
-                rules[category] = _step(current, value, RULE_THRESHOLD_BOUNDS)
-        return Settings(weights, saturation, suspicious, signature, rules)
+        return _apply(self, overrides, _step)
 
     def diff(self, other: "Settings") -> dict[str, tuple[float, float]]:
         """``knob -> (before, after)`` for everything that actually moved."""
@@ -145,10 +119,7 @@ class Settings:
             overrides[f"rule.{category}.threshold"] = value
         # A persisted file is a resume, not a tuning round: allow it to sit
         # anywhere inside the bounds rather than one step from the default.
-        return _unstepped(base, overrides)
-
-
-DEFAULT_RULE_THRESHOLD = 0.75
+        return _apply(base, overrides, _settle)
 
 
 def written_rule_threshold(category: str) -> float:
@@ -160,31 +131,51 @@ def written_rule_threshold(category: str) -> float:
 
 
 def _step(current: float, target: float, bounds: tuple[float, float]) -> float:
+    """One tuning round's worth of movement toward ``target``."""
     low, high = bounds
     span = abs(current) * MAX_STEP or (high - low) * MAX_STEP
     return round(clamp(clamp(target, current - span, current + span), low, high), 5)
 
 
-def _unstepped(base: "Settings", overrides: dict) -> "Settings":
+def _settle(current: float, target: float, bounds: tuple[float, float]) -> float:
+    """Straight to ``target``, bounds only. Resuming is not a tuning round."""
+    return clamp(target, *bounds)
+
+
+def _apply(base: "Settings", overrides: dict, combine) -> "Settings":
+    """``knob -> value`` onto a copy of ``base``, one knob at a time.
+
+    ``combine(current, target, bounds)`` decides how far a knob is allowed
+    to move: ``_step`` for a tuning round, ``_settle`` for a resume. The
+    dispatch below is the only place that knows which group a knob name
+    belongs to, so the two callers cannot drift apart.
+
+    Anything unrecognised is skipped rather than raised on: this is fed by
+    a model, and one bad key must not lose the good ones beside it.
+    """
     weights, saturation = dict(base.weights), dict(base.saturation)
     signature, rules = dict(base.signature), dict(base.rule_thresholds)
     suspicious = base.suspicious
+    # knob group -> the dict it lives in, so every group is handled alike.
+    groups = {"weights": weights, "saturation": saturation, "signature": signature}
+
     for knob, raw in overrides.items():
         try:
             value = float(raw)
         except (TypeError, ValueError):
             continue
+        if value != value:  # NaN: not a number, so not a decision
+            continue
         group, _, rest = knob.partition(".")
-        if group == "weights" and rest in weights:
-            weights[rest] = clamp(value, *BOUNDS[knob])
-        elif group == "saturation" and rest in saturation:
-            saturation[rest] = clamp(value, *BOUNDS[knob])
-        elif group == "signature" and rest in signature:
-            signature[rest] = clamp(value, *BOUNDS[knob])
+        target = groups.get(group)
+        if target is not None and rest in target:
+            target[rest] = combine(target[rest], value, BOUNDS[knob])
         elif knob == "suspicious":
-            suspicious = clamp(value, *BOUNDS[knob])
+            suspicious = combine(suspicious, value, BOUNDS[knob])
         elif group == "rule" and rest.endswith(".threshold"):
-            rules[rest[: -len(".threshold")]] = clamp(value, *RULE_THRESHOLD_BOUNDS)
+            category = rest[: -len(".threshold")]
+            current = rules.get(category, written_rule_threshold(category))
+            rules[category] = combine(current, value, RULE_THRESHOLD_BOUNDS)
     return Settings(weights, saturation, suspicious, signature, rules)
 
 
@@ -230,11 +221,21 @@ def reset() -> Settings:
     return set_live(defaults())
 
 
+def resolve(settings: Settings | None) -> Settings:
+    """The set to read numbers from: the one passed, or the live one.
+
+    Every scoring function takes an optional ``settings`` so the adaptive
+    layer can replay a candidate without touching what the detector is
+    using. Resolving it per call - rather than once, up front - is what
+    makes ``set_live`` a single atomic reference swap.
+    """
+    return live() if settings is None else settings
+
+
 def rule_threshold(category: str, written: float, settings: Settings | None = None) -> float:
     """The threshold in force for a category: an override, or the rule's own."""
-    current = live() if settings is None else settings
-    return current.rule_thresholds.get(category, written)
+    return resolve(settings).rule_thresholds.get(category, written)
 
 
 __all__ = ["Settings", "BOUNDS", "MAX_STEP", "defaults", "live", "set_live",
-           "reset", "rule_threshold", "clamp", "replace"]
+           "reset", "resolve", "rule_threshold", "clamp"]
