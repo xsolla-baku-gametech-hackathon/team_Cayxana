@@ -17,6 +17,14 @@ CELL_SIZE = 10.0
 # How many consecutive closing steps count as "moving toward the trap".
 APPROACH_STEPS = 3
 
+# The floor under everything downstream: a trace this short contains no
+# rhythm to measure, so both the weighted score and the signatures refuse
+# it rather than reading a straight opening walk as a perfect bot. Both
+# read it from here, because a signature is conclusive on its own and so
+# needs at least as much evidence behind it as a score does.
+MIN_SAMPLES = 40
+MIN_SPAN_TICKS = 40
+
 
 @dataclass(frozen=True)
 class Features:
@@ -27,6 +35,12 @@ class Features:
     revisits: int | None
     samples: int = 0
     span_ticks: int = 0
+
+
+def enough_evidence(features: Features) -> bool:
+    """Was enough movement observed to judge this window at all?"""
+    return (features.samples >= MIN_SAMPLES
+            and features.span_ticks >= MIN_SPAN_TICKS)
 
 
 def _points(trace):
